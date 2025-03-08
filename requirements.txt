@@ -1,0 +1,11 @@
+google-cloud-storage
+google-cloud-aiplatform
+cloud-sql-python-connector
+vertexai
+python-dotenv
+asyncio
+typing
+google-auth
+SQLAlchemy
+aiohttp
+pg8000
