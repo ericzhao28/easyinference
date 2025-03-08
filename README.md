@@ -11,11 +11,10 @@ This repository hosts a modular framework to orchestrate large-scale batch and l
 
 - [📦 Installation](#-installation)
 - [🚀 Quick Start](#-quick-start)
-- [⚙️ Core Functions](#-core-functions)
+- [⚙️ Core Functions](#%EF%B8%8F-core-functions)
 - [💡 Example Usage](#-example-usage)
-- [🔧 Configuration](#-configuration)
 - [📚 Package Overview](#-package-overview)
-- [🏗️ System Architecture](#-system-architecture)
+- [🏗️ System Architecture](#%EF%B8%8F-system-architecture)
 - [🔑 Key Concepts and Features](#-key-concepts-and-features)
 - [🧩 Core Components](#-core-components)
 - [📊 Table Schema](#-table-schema)
