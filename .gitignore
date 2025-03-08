@@ -8,6 +8,7 @@
 rsc/IGNORE
 *copy*
 artifacts/temp_source/*
+*.ipynb
 
 # Internal and sensitive files
 INTERNAL_*

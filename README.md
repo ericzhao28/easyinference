@@ -74,14 +74,25 @@ export ROUND_ROBIN_ENABLED="false"
      Otherwise, you should run `easyinference.reload_config()` after setting your
      environment variables.
 
-3. Import and use the package:
+3. Initialize the database connection:
+```python
+from easyinference import initialize_query_connection
+
+# Initialize the database connection before using any inference functions
+initialize_query_connection()
+```
+
+4. Import and use the package:
 ```python
 from dotenv import load_dotenv  # pip install python-dotenv
 
 # Load environment variables from .env file (if using this approach)
 load_dotenv()
 
-from easyinference import inference, individual_inference, run_clearing_inference
+from easyinference import inference, individual_inference, run_clearing_inference, reload_config, initialize_query_connection
+
+# Initialize the database connection
+initialize_query_connection()
 ```
 
 ## ⚙️ Core Functions
@@ -175,10 +186,13 @@ def reload_config() -> None
 ```python
 import asyncio
 from dotenv import load_dotenv
-from easyinference import inference, reload_config
+from easyinference import inference, reload_config, initialize_query_connection
 
 load_dotenv()
 reload_config()
+
+# Initialize the database connection before using any inference functions
+initialize_query_connection()
 
 async def process_data():
     # Define data and prompt function
@@ -325,6 +339,18 @@ A hash of `(Model, History, Query, GenerationParams, DuplicationIndex)` for dedu
 
 - **Run Fast**: calls the Vertex API directly, returning the result in real-time.  
 - **Run Slow**: queues up the request for a **batch job**. The `run_clearing_inference` function handles job submission and monitoring.
+
+### 9. Initialization ⚡
+
+Before using any inference functions, you must initialize the database connection by calling:
+
+```python
+from easyinference import initialize_query_connection
+
+initialize_query_connection()
+```
+
+This sets up the necessary connections to the PostgreSQL database for tracking inference requests.
 
 ---
 

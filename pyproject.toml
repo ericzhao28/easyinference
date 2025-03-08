@@ -1,14 +1,14 @@
 [build-system]
-requires = ["setuptools>=45", "wheel"]
+requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "easyinference"
-version = "0.1.0"
+version = "1.0.0"
 description = "Easy inference using Google's Vertex AI and Gemini models"
 readme = "README.md"
 authors = [
-    {name = "Eric", email = "eric@example.com"},
+    {name = "Eric", email = "theeric@google.com"},
 ]
 license = {text = "MIT"}
 requires-python = ">=3.8"
@@ -23,7 +23,11 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
 ]
+dynamic = ["dependencies"]
+
+[tool.setuptools.dynamic]
+dependencies = {file = ["requirements.txt"]}
 
 [project.urls]
-Homepage = "https://github.com/theeric/easyinference"
-Repository = "https://github.com/theeric/easyinference.git" 
+Homepage = "https://github.com/ericzhao28/easyinference"
+Repository = "https://github.com/ericzhao28/easyinference.git" 

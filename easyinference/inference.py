@@ -294,22 +294,25 @@ async def run_clearing_inference(tag: str, batch_size: int, run_batch_jobs: bool
         logger.info("Running clearing inference for tag %s", tag)
 
         # Check on current batch prediction jobs
-        batch_ids = get_batch_ids_by_status_and_tag([RequestStatus.RUNNING, RequestStatus.PENDING], tag)
+        batch_ids = await get_batch_ids_by_status_and_tag([RequestStatus.RUNNING, RequestStatus.PENDING], tag)
         for batch_id in batch_ids:
             job = BatchPredictionJob(batch_id)
             logger.info(f"Retrieving all incomplete rows corresponding to batch job {batch_id}")
-            rows = get_rows_by_status_and_tag_and_batch([RequestStatus.WAITING, RequestStatus.FAILED, RequestStatus.PENDING, RequestStatus.RUNNING], tag, batch_id)
+            rows = await get_rows_by_status_and_tag_and_batch([RequestStatus.WAITING, RequestStatus.FAILED, RequestStatus.PENDING, RequestStatus.RUNNING], tag, batch_id)
 
             logger.info(f"Checking batch job {batch_id} with state {job.state} and this many rows remaining: {len(rows)}")
 
             # Handle if job has failed
             if job.state in [job_state_map["cancelled"], job_state_map["cancelling"], job_state_map["failed"], job_state_map["expired"]]:
                 logger.info(f"Handling failed batch job {batch_id}")
+                # Convert sequential updates to parallel using gather
+                update_tasks = []
                 for row in rows:
                     row.last_status = RequestStatus.FAILED
                     row.access_timestamps.append(datetime.now(timezone.utc).isoformat())
                     row.attempts_metadata_json = row.attempts_metadata_json + [{"error": "Batch job failed."}]
-                    insert_row(row)
+                    update_tasks.append(insert_row(row))
+                await asyncio.gather(*update_tasks)
             
             # Optionally restart if job is running
             if job.state == job_state_map["running"]:
@@ -317,20 +320,23 @@ async def run_clearing_inference(tag: str, batch_size: int, run_batch_jobs: bool
                 if job._gca_resource.start_time:
                     if (datetime.now(timezone.utc) - job._gca_resource.start_time) > timedelta(hours=batch_timeout_hours):
                         logger.warning(f"Job {batch_id} has been running for more than {batch_timeout_hours} hours. Restarting...")
+                        job.cancel()
+                        # Convert sequential updates to parallel using gather
+                        update_tasks = []
                         for row in rows:
                             logger.warning(f"Job {batch_id} has been running for more than {batch_timeout_hours} hours. Restarting...")
-                            job.cancel()
                             row.last_status = RequestStatus.FAILED
                             row.access_timestamps.append(datetime.now(timezone.utc).isoformat())
                             row.attempts_metadata_json = row.attempts_metadata_json + [{"error": "Batch job ran out of time."}]
-                            insert_row(row)
+                            update_tasks.append(insert_row(row))
+                        await asyncio.gather(*update_tasks)
     
             # Handle successful batch jobs
             if job.state in [job_state_map["succeeded"], job_state_map["partially_succeeded"]]:
                 logger.info(f"Handling successful batch job {batch_id}")
                 all_responses = {}
 
-                blobs = list(bucket.list_blobs(prefix=f"{job._gca_resource.output_config.gcs_destination.output_uri_prefix.split(VERTEX_BUCKET + "/")[1]}"))
+                blobs = list(bucket.list_blobs(prefix=f"{job._gca_resource.output_config.gcs_destination.output_uri_prefix.split(VERTEX_BUCKET + '/')[1]}"))
                 
                 blobs = sorted(blobs, key=lambda x: x.name)
                 for blob in blobs:
@@ -347,12 +353,15 @@ async def run_clearing_inference(tag: str, batch_size: int, run_batch_jobs: bool
                             except KeyError as e:
                                 all_responses[query_content_hash] = json.loads(l)
                                 all_responses[query_content_hash].pop("request")
+                    
+                    # Convert sequential row updates to parallel using gather
+                    update_tasks = []
                     for row in rows:
                         if row.content_hash not in all_responses:
                             row.last_status = RequestStatus.FAILED
                             row.access_timestamps.append(datetime.now(timezone.utc).isoformat())
                             row.attempts_metadata_json = row.attempts_metadata_json + [{"This query was not found in batch!"}]
-                            insert_row(row)
+                            update_tasks.append(insert_row(row))
                             continue
                         try:
                             text_response = all_responses[row.content_hash]["candidates"][0]["content"]["parts"][0]["text"]
@@ -365,12 +374,13 @@ async def run_clearing_inference(tag: str, batch_size: int, run_batch_jobs: bool
                             row.access_timestamps.append(datetime.now(timezone.utc).isoformat())
                             row.attempts_metadata_json = row.attempts_metadata_json + [all_responses[row.content_hash]]
                             row.failure_count += 1
-                        insert_row(row)
+                        update_tasks.append(insert_row(row))
+                    await asyncio.gather(*update_tasks)
 
         # Launch new batch prediction jobs
         if run_batch_jobs:
             logger.info(f"Checking now if there are new rows that need to be launched")
-            for batch in stream_rows_by_status_and_tag([RequestStatus.WAITING, RequestStatus.FAILED], tag, batch_size=batch_size):
+            async for batch in stream_rows_by_status_and_tag([RequestStatus.WAITING, RequestStatus.FAILED], tag, batch_size=batch_size):
                 logger.info(f"Launching new batch prediction job for tag {tag}")
                 model_types = set()
                 for row in batch:
@@ -440,19 +450,20 @@ async def run_clearing_inference(tag: str, batch_size: int, run_batch_jobs: bool
                         input_dataset=batch_input_path_gcs,
                         output_uri_prefix=output_uri_prefix,
                     )
+                    # Parallelize row updates after batch job creation
+                    update_tasks = []
                     for row in batch:
                         row.last_status = RequestStatus.PENDING
                         row.access_timestamps.append(datetime.now(timezone.utc).isoformat())
                         row.current_batch = job.resource_name
-                        insert_row(row)
+                        update_tasks.append(insert_row(row))
+                    await asyncio.gather(*update_tasks)
 
         logger.info(f"Checking now if we are completely done with this tag")
-        rows = get_rows_by_status_and_tag_and_batch([RequestStatus.WAITING, RequestStatus.FAILED, RequestStatus.PENDING, RequestStatus.RUNNING], tag)
+        rows = await get_rows_by_status_and_tag_and_batch([RequestStatus.WAITING, RequestStatus.FAILED, RequestStatus.PENDING, RequestStatus.RUNNING], tag)
         if not rows:
             logger.info("Clearing inference for tag %s completed", tag)
             return
-        for row in rows:
-            print(row.to_dict())
 
         logger.info("Clearing inference for tag %s waiting", tag)
         await asyncio.sleep(60)
@@ -634,18 +645,25 @@ async def individual_inference(
 
         # Decide whether to create a new row
         if all_tags:
-            new_row = find_existing_row_by_content_hash(row.content_hash, tags)
+            new_row = await find_existing_row_by_content_hash(row.content_hash, tags)
             if new_row:
                 row = new_row
+            else:
+                logger.info(f"Creating new row for content hash {row.content_hash}")
+                await insert_row(row)
 
         # Update row with access information
         row.access_timestamps.append(datetime.now(timezone.utc).isoformat())
         row.tags = sorted(set(row.tags + all_tags))
-        insert_row(row)
 
         # Run inference
         response = None
-        
+        if row.response_json:
+            response = row.response_json["text"]
+            assert row.last_status == RequestStatus.SUCCEEDED
+        else:
+            logger.info(f"Row {row.content_hash} has no response, will run inference")
+
         while response is None:
             # If permission exceeded
             if row.failure_count >= row.attempts_cap:
@@ -673,22 +691,22 @@ async def individual_inference(
                 if err_code == 0:
                     row.response_json = {"text": resp_text}
                     row.last_status = RequestStatus.SUCCEEDED
-                    insert_row(row)
+                    await insert_row(row)
                 else:
                     row.failure_count += 1
                     row.last_status = RequestStatus.FAILED
-                    insert_row(row)
+                    await insert_row(row)
             else:
                 # If we've reached here, we know we need to re-attempt.
                 if row.last_status == RequestStatus.FAILED:
                     row.last_status = RequestStatus.WAITING
-                    insert_row(row)
+                    await insert_row(row)
 
                 # Wait for batch update to row
                 while row.last_status in (RequestStatus.WAITING, RequestStatus.PENDING):
                     # Report if waiting in waiting status or waiting in pending status
                     await asyncio.sleep(30)
-                    row = refresh_row(row)
+                    row = await refresh_row(row)
 
         collected_responses.append(response)
         history_json["history"].append({"role": "model", "parts": {"text": response}})

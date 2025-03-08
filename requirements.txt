@@ -8,4 +8,6 @@ typing
 google-auth
 SQLAlchemy
 aiohttp
+asyncpg
+greenlet
 pg8000

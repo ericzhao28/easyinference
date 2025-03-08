@@ -151,22 +151,31 @@ class ConvoRow:
         Returns:
             ConvoRow: A ConvoRow instance populated from the dictionary.
         """
+        new_row = row.copy()
+        if isinstance(new_row["history_json"], str):
+            new_row["history_json"] = json.loads(new_row["history_json"])
+        if isinstance(new_row["generation_params_json"], str):
+            new_row["generation_params_json"] = json.loads(new_row["generation_params_json"])
+        if isinstance(new_row["attempts_metadata_json"], str):
+            new_row["attempts_metadata_json"] = [json.loads(t) for t in new_row["attempts_metadata_json"]]
+        if isinstance(new_row["response_json"], str):
+            new_row["response_json"] = json.loads(new_row["response_json"])
         return ConvoRow(
-            history_json=row["history_json"],
-            query=row["query"],
-            model=row["model"],
-            generation_params_json=row["generation_params_json"],
-            duplication_index=row["duplication_index"],
-            tags=sorted(row["tags"]),
-            request_cause=RequestCause(row["request_cause"]),
-            request_timestamp=row["request_timestamp"],
-            access_timestamps=row["access_timestamps"],
-            attempts_metadata_json=row["attempts_metadata_json"],
-            response_json=row["response_json"],
-            current_batch=row["current_batch"] if row["current_batch"] else None,
-            last_status=RequestStatus(row["last_status"]),
-            failure_count=row["failure_count"],
-            attempts_cap=row["attempts_cap"],
-            notes=row["notes"],
-            row_id=row["row_id"],
+            history_json=new_row["history_json"],
+            query=new_row["query"],
+            model=new_row["model"],
+            generation_params_json=new_row["generation_params_json"],
+            duplication_index=new_row["duplication_index"],
+            tags=sorted(new_row["tags"]),
+            request_cause=RequestCause(new_row["request_cause"]),
+            request_timestamp=new_row["request_timestamp"],
+            access_timestamps=new_row["access_timestamps"],
+            attempts_metadata_json=new_row["attempts_metadata_json"],
+            response_json=new_row["response_json"],
+            current_batch=new_row["current_batch"] if new_row["current_batch"] else None,
+            last_status=RequestStatus(new_row["last_status"]),
+            failure_count=new_row["failure_count"],
+            attempts_cap=new_row["attempts_cap"],
+            notes=new_row["notes"],
+            row_id=new_row["row_id"],
         )

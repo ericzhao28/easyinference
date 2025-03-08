@@ -9,34 +9,34 @@ Provides helper functions to interact with the Google Cloud SQL database, includ
 
 from typing import Optional, List, Iterable
 import logging
+import asyncpg
 from datetime import datetime
 import sqlalchemy
-import pg8000
-from sqlalchemy import text, MetaData, Table, Column, String, Integer, TIMESTAMP, JSON, Boolean
+from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+from sqlalchemy import text, MetaData, Table, Column, String, Integer, TIMESTAMP, JSON
 from sqlalchemy.dialects.postgresql import ARRAY
-from google.cloud.sql.connector import Connector, IPTypes
-from contextlib import contextmanager
+from google.cloud.sql.connector import Connector, IPTypes, create_async_connector
+from contextlib import asynccontextmanager, contextmanager
+import json  # Add this import at the top of the file
+
 
 from easyinference.cloudsql.schema import ConvoRow, RequestStatus
 from easyinference.config import SQL_INSTANCE_CONNECTION_NAME, SQL_DATABASE_NAME, SQL_USER, SQL_PASSWORD, TABLE_NAME
 
 # Configure logging
 logger = logging.getLogger(__name__)
+pool = None
 
-
-def connect_with_connector() -> sqlalchemy.engine.base.Engine:
+async def init_connection_pool(connector: Connector) -> AsyncEngine:
     """
     Initializes a connection pool for a Cloud SQL instance of Postgres.
 
     Uses the Cloud SQL Python Connector package.
     """
-    # initialize Cloud SQL Python Connector object
-    connector = Connector(refresh_strategy="LAZY")
-
-    def getconn() -> pg8000.dbapi.Connection:
-        conn: pg8000.dbapi.Connection = connector.connect(
+    def getconn() -> asyncpg.Connection:
+        conn: asyncpg.Connection = connector.connect_async(
             SQL_INSTANCE_CONNECTION_NAME,
-            "pg8000",
+            "asyncpg",
             user=SQL_USER,
             password=SQL_PASSWORD,
             db=SQL_DATABASE_NAME,
@@ -44,26 +44,30 @@ def connect_with_connector() -> sqlalchemy.engine.base.Engine:
         )
         return conn
 
-    pool = sqlalchemy.create_engine(
-        "postgresql+pg8000://",
-        creator=getconn,
+    pool = create_async_engine(
+        "postgresql+asyncpg://",
+        async_creator=getconn,
     )
     return pool
 
-engine = connect_with_connector()
+# Create the engine once as a module-level variable
+async def initialize_query_connection():
+    global pool
+    connector = await create_async_connector()
+    pool = await init_connection_pool(connector)
+
 metadata = MetaData()
 
-@contextmanager
-def get_connection():
-    """Context manager for database connections"""
-    connection = engine.connect()
-    try:
+@asynccontextmanager
+async def get_connection():
+    """Async context manager for database connections"""
+    if pool is None:
+        raise ValueError("Connection pool not initialized. Run initialize_query_connection() first.")
+    async with pool.connect() as connection:
         yield connection
-    finally:
-        connection.close()
 
 
-def insert_row(row: ConvoRow) -> Optional[int]:
+async def insert_row(row: ConvoRow) -> Optional[int]:
     """
     Insert a new row into the SQL database or replace an existing row if there's one with
     the same row_id.
@@ -90,20 +94,21 @@ def insert_row(row: ConvoRow) -> Optional[int]:
         if "row_id" in row_dict:
             del row_dict["row_id"]
         
-        # Convert JSON strings to dictionaries
-        assert isinstance(row_dict["history_json"], dict)
-        assert isinstance(row_dict["generation_params_json"], dict)
-        assert isinstance(row_dict["attempts_metadata_json"], list)
-        assert isinstance(row_dict["response_json"], dict)
+        # Convert JSON objects to JSON strings for asyncpg
+        row_dict["history_json"] = json.dumps(row_dict["history_json"])
+        row_dict["generation_params_json"] = json.dumps(row_dict["generation_params_json"])
+        row_dict["attempts_metadata_json"] = [json.dumps(t) for t in row_dict["attempts_metadata_json"]]
+        row_dict["response_json"] = json.dumps(row_dict["response_json"])
         
         # Insert or replace based on row_id
-        with get_connection() as conn:
+        async with get_connection() as conn:
             if has_row_id:
                 # Check if a row with this row_id exists
                 check_row_id_query = text(f"""
                     SELECT row_id FROM "{TABLE_NAME}" WHERE row_id = :row_id
                 """)
-                existing_by_row_id = conn.execute(check_row_id_query, {"row_id": row_id_value}).fetchone()
+                result = await conn.execute(check_row_id_query, {"row_id": row_id_value})
+                existing_by_row_id = result.fetchone()
                 
                 if existing_by_row_id:
                     # Update the specific row with matching row_id
@@ -134,16 +139,16 @@ def insert_row(row: ConvoRow) -> Optional[int]:
                     
                     # Add row_id back to parameters for the UPDATE
                     row_dict["row_id"] = row_id_value
-                    result = conn.execute(update_query, row_dict)
+                    result = await conn.execute(update_query, row_dict)
                     row_id = result.scalar_one()
                 else:
                     # Row_id provided but not found - insert new row with default row_id
-                    row_id = _insert_new_row(conn, row_dict)
+                    row_id = await _insert_new_row(conn, row_dict)
             else:
                 # No row_id provided - simple insert
-                row_id = _insert_new_row(conn, row_dict)
+                row_id = await _insert_new_row(conn, row_dict)
             
-            conn.commit()
+            await conn.commit()
         
         logger.info(f"Successfully inserted/replaced row with content hash: {row.content_hash}, assigned row_id: {row_id}")
         # Update the row object with the new row_id
@@ -155,7 +160,7 @@ def insert_row(row: ConvoRow) -> Optional[int]:
         raise
 
 
-def _insert_new_row(conn, row_dict) -> int:
+async def _insert_new_row(conn, row_dict) -> int:
     """Helper function to insert a new row and return its row_id"""
     insert_query = text(f"""
         INSERT INTO "{TABLE_NAME}" (
@@ -173,11 +178,11 @@ def _insert_new_row(conn, row_dict) -> int:
         ) RETURNING row_id
     """)
     
-    result = conn.execute(insert_query, row_dict)
+    result = await conn.execute(insert_query, row_dict)
     return result.scalar_one()
 
 
-def find_existing_row_by_content_hash(content_hash: str, tag_subset: Optional[List[str]] = None, tag_superset: Optional[List[str]] = None) -> Optional[ConvoRow]:
+async def find_existing_row_by_content_hash(content_hash: str, tag_subset: Optional[List[str]] = None, tag_superset: Optional[List[str]] = None) -> Optional[ConvoRow]:
     """
     Search the SQL database for an existing row matching the given content hash.
     Optionally, enforce that:
@@ -220,15 +225,13 @@ def find_existing_row_by_content_hash(content_hash: str, tag_subset: Optional[Li
         SELECT * FROM ranked_rows WHERE row_num = 1
         """
         
-        with get_connection() as conn:
-            result = conn.execute(text(query_str), params).fetchone()
+        async with get_connection() as conn:
+            result = await conn.execute(text(query_str), params)
+            row = result.fetchone()
             
-        if result:
+        if row:
             # Convert row to dictionary
-            row_dict = dict(result._mapping)
-            for json_field in ['history_json', 'generation_params_json', 'attempts_metadata_json', 'response_json']:
-                if isinstance(row_dict[json_field], dict):
-                    row_dict[json_field] = row_dict[json_field]
+            row_dict = dict(row._mapping)
             
             return ConvoRow.from_dict(row_dict)
         return None
@@ -237,7 +240,7 @@ def find_existing_row_by_content_hash(content_hash: str, tag_subset: Optional[Li
         raise
 
 
-def get_batch_ids_by_status_and_tag(status_list: List[RequestStatus], tag: Optional[str] = None) -> set[str]:
+async def get_batch_ids_by_status_and_tag(status_list: List[RequestStatus], tag: Optional[str] = None) -> set[str]:
     """
     Retrieve the set of unique current_batch values from the most recent rows (by content_hash) that match any of the provided statuses and, optionally, contain a specific tag.
 
@@ -292,8 +295,9 @@ def get_batch_ids_by_status_and_tag(status_list: List[RequestStatus], tag: Optio
         AND current_batch IS NOT NULL
         """
         
-        with get_connection() as conn:
-            results = conn.execute(text(query_str), params).fetchall()
+        async with get_connection() as conn:
+            result = await conn.execute(text(query_str), params)
+            results = result.fetchall()
         
         unique_batches = {row[0] for row in results if row[0] is not None}
         logger.info(f"Retrieved {len(unique_batches)} unique current_batch values from most recent rows with statuses: {status_list} and tag: {tag}")
@@ -303,7 +307,7 @@ def get_batch_ids_by_status_and_tag(status_list: List[RequestStatus], tag: Optio
         raise
 
 
-def get_rows_by_status_and_tag_and_batch(status_list: List[RequestStatus], tag: Optional[str] = None, current_batch: Optional[str] = None) -> List[ConvoRow]:
+async def get_rows_by_status_and_tag_and_batch(status_list: List[RequestStatus], tag: Optional[str] = None, current_batch: Optional[str] = None) -> List[ConvoRow]:
     """
     Retrieve rows that match any of the provided statuses and, optionally, contain a specific tag and/or current_batch,
     ignoring older rows if a more recent row with the same content_hash and tags exists.
@@ -360,8 +364,9 @@ def get_rows_by_status_and_tag_and_batch(status_list: List[RequestStatus], tag: 
         SELECT * FROM ranked_rows WHERE row_num = 1
         """
         
-        with get_connection() as conn:
-            results = conn.execute(text(query_str), params).fetchall()
+        async with get_connection() as conn:
+            result = await conn.execute(text(query_str), params)
+            results = result.fetchall()
         
         # Convert rows to ConvoRow objects
         bq_rows = []
@@ -378,7 +383,7 @@ def get_rows_by_status_and_tag_and_batch(status_list: List[RequestStatus], tag: 
         return []
 
 
-def stream_rows_by_status_and_tag(status_list: List[RequestStatus], tag: Optional[str] = None, batch_size: int = 1000) -> Iterable[List[ConvoRow]]:
+async def stream_rows_by_status_and_tag(status_list: List[RequestStatus], tag: Optional[str] = None, batch_size: int = 1000) -> Iterable[List[ConvoRow]]:
     """
     Retrieve rows that match any of the provided statuses and, optionally, contain a specific tag,
     in pages to efficiently handle large datasets, ignoring older rows with the same content_hash and tags.
@@ -429,17 +434,15 @@ def stream_rows_by_status_and_tag(status_list: List[RequestStatus], tag: Optiona
         SELECT * FROM ranked_rows WHERE row_num = 1
         """
         
-        # Execute query with cursor-based pagination
-        with get_connection() as conn:
-            result_proxy = conn.execution_options(
-                stream_results=True
-            ).execute(text(query_str), params)
+        # Execute query with pagination
+        async with get_connection() as conn:
+            result = await conn.execute(text(query_str), params)
             
             # Process rows in batches
             current_batch = []
             retrieved_count = 0
             
-            for row in result_proxy:
+            for row in result:
                 # Convert row to a dictionary
                 row_dict = dict(row._mapping)
                 
@@ -459,10 +462,10 @@ def stream_rows_by_status_and_tag(status_list: List[RequestStatus], tag: Optiona
 
     except Exception as e:
         logger.error(f"Failed to retrieve rows by status and tag. Statuses: {status_list}, Tag: {tag}. Error: {e}")
-        yield from []  # return empty iterator in case of error
+        yield []  # return empty list in case of error
 
 
-def create_table_if_not_exists() -> None:
+async def create_table_if_not_exists() -> None:
     """
     Creates the SQL table if it doesn't already exist.
     Uses the schema defined in the README.
@@ -474,8 +477,9 @@ def create_table_if_not_exists() -> None:
         logger.info(f"Checking if table '{TABLE_NAME}' exists")
         
         # Check if table exists
-        inspector = sqlalchemy.inspect(engine)
-        if TABLE_NAME in inspector.get_table_names():
+        inspector = await sqlalchemy.inspect(pool)
+        tables = await inspector.get_table_names()
+        if TABLE_NAME in tables:
             logger.info(f"Table '{TABLE_NAME}' already exists")
             return
         
@@ -506,13 +510,15 @@ def create_table_if_not_exists() -> None:
             Column("insertion_timestamp", TIMESTAMP, nullable=False),
         )
 
-        metadata.create_all(engine, tables=[conversations])
+        async with pool.begin() as conn:
+            await conn.run_sync(lambda conn: metadata.create_all(conn, tables=[conversations]))
         logger.info(f"Successfully created table '{TABLE_NAME}'")
     
     except Exception as e:
         logger.error(f"Failed to create table {TABLE_NAME}: {e}")
 
-def refresh_row(row: ConvoRow) -> Optional[ConvoRow]:
+
+async def refresh_row(row: ConvoRow) -> Optional[ConvoRow]:
     """
     Fetch the current state of a row from the database using its row_id.
     
@@ -533,12 +539,13 @@ def refresh_row(row: ConvoRow) -> Optional[ConvoRow]:
         
         params = {"row_id": row.row_id}
         
-        with get_connection() as conn:
-            result = conn.execute(text(query_str), params).fetchone()
+        async with get_connection() as conn:
+            result = await conn.execute(text(query_str), params)
+            row_data = result.fetchone()
             
-        if result:
+        if row_data:
             # Convert row to dictionary
-            row_dict = dict(result._mapping)
+            row_dict = dict(row_data._mapping)
             for json_field in ['history_json', 'generation_params_json', 'attempts_metadata_json', 'response_json']:
                 if isinstance(row_dict[json_field], dict):
                     row_dict[json_field] = row_dict[json_field]

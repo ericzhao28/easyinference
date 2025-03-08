@@ -10,6 +10,7 @@ from . import config
 vertexai.init(project=config.GCP_PROJECT_ID, location=config.GCP_REGION)
 
 from . import cloudsql
+from .cloudsql.table_utils import initialize_query_connection
 from .inference import (
     inference,
     individual_inference,
@@ -35,4 +36,5 @@ __all__ = [
     "run_chat_inference_async",
     "run_clearing_inference",
     "reload_config",
+    "initialize_query_connection",
 ]
