@@ -184,8 +184,8 @@ async def run_chat_inference_async(
         if "max_output_tokens" in parsed_config:
             gen_config["max_output_tokens"] = parsed_config["max_output_tokens"]
 
-        model_name = row.model.split("/")[-1]
-        model = GenerativeModel(model_name, safety_settings=safety_config, generation_config=gen_config,
+        logging.info(f"Async querying model {row.model}.")
+        model = GenerativeModel(row.model, safety_settings=safety_config, generation_config=gen_config,
                                 system_instruction=parsed_config.get("system_prompt", None))
 
         history = []
@@ -228,7 +228,7 @@ async def run_chat_inference_async(
         return None, None, None, 2
 
 
-async def run_clearing_inference(tag: str, batch_size: int, run_batch_jobs: bool, batch_timeout_hours: int = BATCH_TIMEOUT_HOURS_DEFAULT):
+async def run_clearing_inference(tag: str, batch_size: int, run_batch_jobs: bool, batch_timeout_hours: int = BATCH_TIMEOUT_HOURS_DEFAULT, round_robin_enabled: bool = ROUND_ROBIN_ENABLED_DEFAULT, round_robin_options: List[str] = ROUND_ROBIN_OPTIONS_DEFAULT):
     """
     Continuously processes batch inference jobs for requests with a specific tag until completion.
     
@@ -260,7 +260,17 @@ async def run_clearing_inference(tag: str, batch_size: int, run_batch_jobs: bool
     
     run_batch_jobs : bool
         Whether to run batch prediction jobs. If False, the function will only monitor existing batch prediction jobs.
+    
+    batch_timeout_hours : int, default=BATCH_TIMEOUT_HOURS_DEFAULT
+        Maximum time in hours to wait for a batch prediction job to complete.
+        If a job exceeds this time, it will be cancelled and retried.
+    
+    round_robin_enabled : bool, default=ROUND_ROBIN_ENABLED_DEFAULT
+        Whether to enable round-robin region selection for load balancing.
         
+    round_robin_options : List[str], default=ROUND_ROBIN_OPTIONS_DEFAULT
+        List of region options to cycle through when round_robin_enabled is True.
+
     Returns:
     --------
     None
@@ -270,8 +280,6 @@ async def run_clearing_inference(tag: str, batch_size: int, run_batch_jobs: bool
     Notes:
     ------
     - This function is designed to run as a long-running background task.
-    - Uses global configuration variables like BATCH_TIMEOUT_HOURS_DEFAULT, ROUND_ROBIN_ENABLED_DEFAULT,
-      ROUND_ROBIN_OPTIONS_DEFAULT, and more.
     - Relies on GCS bucket storage for batch inputs and outputs.
     - Implements exponential backoff retry logic for resilience.
     - Periodically logs progress and status information.
@@ -436,8 +444,8 @@ async def run_clearing_inference(tag: str, batch_size: int, run_batch_jobs: bool
                     blob.upload_from_filename(f.name, if_generation_match=0)
                     logger.info(f"Done uploading to {batch_input_path}")
 
-                    if ROUND_ROBIN_ENABLED_DEFAULT:
-                        region = ROUND_ROBIN_OPTIONS_DEFAULT[ROUND_ROBIN_IDX % len(ROUND_ROBIN_OPTIONS_DEFAULT)]
+                    if round_robin_enabled:
+                        region = round_robin_options[ROUND_ROBIN_IDX % len(round_robin_options)]
                         logger.info(f"Running in region {region}")
                         vertexai.init(project=GCP_PROJECT_ID, location=region)
                         ROUND_ROBIN_IDX += 1
@@ -481,7 +489,7 @@ async def individual_inference(
     temperature: float = 0,
     max_output_tokens: int = 8192,
     system_prompt: str = "",
-    model_name: str = "publishers/google/models/gemini-1.5-flash-002",
+    model: str = "publishers/google/models/gemini-1.5-flash-002",
     run_fast_timeout: float = 200,
     cooldown_seconds: float = COOLDOWN_SECONDS_DEFAULT,
     round_robin_enabled: bool = ROUND_ROBIN_ENABLED_DEFAULT,
@@ -544,7 +552,7 @@ async def individual_inference(
     system_prompt : str, default=""
         System prompt to guide model behavior. Empty string means no system prompt.
     
-    model_name : str, default="publishers/google/models/gemini-1.5-flash-002"
+    model : str, default="publishers/google/models/gemini-1.5-flash-002"
         Identifier of the generative model to use for inference.
     
     run_fast_timeout : float, default=200
@@ -633,7 +641,7 @@ async def individual_inference(
         row = ConvoRow(
             history_json=history_json,
             query=user_query,
-            model=model_name,
+            model=model,
             generation_params_json=generation_params_json,
             duplication_index=duplication_index,
             tags=all_tags,
@@ -725,7 +733,7 @@ async def inference(
     temperature: float = 0,
     max_output_tokens: int = 8192,
     system_prompt: str = "",
-    model_name: str = "publishers/google/models/gemini-1.5-flash-002",
+    model: str = "publishers/google/models/gemini-1.5-flash-002",
     batch_size: int = 1000,
     run_fast_timeout: float = 200,
     cooldown_seconds: float = COOLDOWN_SECONDS_DEFAULT,
@@ -788,7 +796,7 @@ async def inference(
     system_prompt : str, default=""
         System prompt to guide model behavior. Empty string means no system prompt.
     
-    model_name : str, default="publishers/google/models/gemini-1.5-flash-002"
+    model : str, default="publishers/google/models/gemini-1.5-flash-002"
         Identifier of the generative model to use for inference.
     
     batch_size : int, default=1000
@@ -887,7 +895,7 @@ async def inference(
                     temperature=temperature,
                     max_output_tokens=max_output_tokens,
                     system_prompt=system_prompt,
-                    model_name=model_name,
+                    model=model,
                     cooldown_seconds=cooldown_seconds,
                     round_robin_enabled=round_robin_enabled,
                     round_robin_options=round_robin_options,
@@ -908,7 +916,7 @@ async def inference(
                 temperature=temperature,
                 max_output_tokens=max_output_tokens,
                 system_prompt=system_prompt,
-                model_name=model_name,
+                model=model,
                 cooldown_seconds=cooldown_seconds,
                 round_robin_enabled=round_robin_enabled,
                 round_robin_options=round_robin_options,
@@ -923,6 +931,9 @@ async def inference(
     if not run_fast:
         tasks.append(run_clearing_inference(tag=launch_timestamp_tag, batch_size=batch_size, run_batch_jobs=True, batch_timeout_hours=batch_timeout_hours))
 
-    results = await asyncio.gather(*tasks)
+    results = list(await asyncio.gather(*tasks))
 
-    return list(results[:-1]), launch_timestamp_tag
+    if not run_fast:
+        results = results[:-1]
+
+    return results, launch_timestamp_tag

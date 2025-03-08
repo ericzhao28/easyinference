@@ -47,6 +47,10 @@ async def init_connection_pool(connector: Connector) -> AsyncEngine:
     pool = create_async_engine(
         "postgresql+asyncpg://",
         async_creator=getconn,
+        pool_size=20,
+        max_overflow=30,
+        pool_timeout=60,
+        pool_recycle=300
     )
     return pool
 
@@ -476,12 +480,21 @@ async def create_table_if_not_exists() -> None:
     try:
         logger.info(f"Checking if table '{TABLE_NAME}' exists")
         
-        # Check if table exists
-        inspector = await sqlalchemy.inspect(pool)
-        tables = await inspector.get_table_names()
-        if TABLE_NAME in tables:
-            logger.info(f"Table '{TABLE_NAME}' already exists")
-            return
+        # Check if table exists using asyncpg-compatible app
+        async with get_connection() as conn:
+            # Query the information schema to check if table exists
+            query = text("""
+                SELECT EXISTS (
+                    SELECT FROM information_schema.tables 
+                    WHERE table_name = :table_name
+                )
+            """)
+            result = await conn.execute(query, {"table_name": TABLE_NAME})
+            table_exists = result.scalar()
+            
+            if table_exists:
+                logger.info(f"Table '{TABLE_NAME}' already exists")
+                return
         
         logger.info(f"Table '{TABLE_NAME}' does not exist, creating now")
         
@@ -510,8 +523,10 @@ async def create_table_if_not_exists() -> None:
             Column("insertion_timestamp", TIMESTAMP, nullable=False),
         )
 
-        async with pool.begin() as conn:
+        # Create the table using SQLAlchemy's create_all
+        async with get_connection() as conn:
             await conn.run_sync(lambda conn: metadata.create_all(conn, tables=[conversations]))
+        
         logger.info(f"Successfully created table '{TABLE_NAME}'")
     
     except Exception as e:
