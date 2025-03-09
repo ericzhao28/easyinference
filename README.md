@@ -54,11 +54,6 @@ export SQL_PASSWORD="your-password"
 export SQL_INSTANCE_CONNECTION_NAME="project-id:region:instance-name"
 export POOL_SIZE="50"
 
-# Vertex AI Model Configuration
-export DEFAULT_MODEL_NAME="gemini-1.5-pro-002"
-export DEFAULT_MAX_OUTPUT_TOKENS="512"
-export DEFAULT_TEMPERATURE="0.0"
-
 # Additional Configuration
 export COOLDOWN_SECONDS="1.0"
 export MAX_RETRIES="8"
