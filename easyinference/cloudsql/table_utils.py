@@ -22,7 +22,7 @@ import asyncio # Import asyncio for semaphore
 
 
 from easyinference.cloudsql.schema import ConvoRow, RequestStatus
-from easyinference.config import SQL_INSTANCE_CONNECTION_NAME, SQL_DATABASE_NAME, SQL_USER, SQL_PASSWORD, TABLE_NAME, POOL_SIZE
+import easyinference.config as config
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -37,11 +37,11 @@ async def init_connection_pool(connector: Connector) -> AsyncEngine:
     """
     def getconn() -> asyncpg.Connection:
         conn: asyncpg.Connection = connector.connect_async(
-            SQL_INSTANCE_CONNECTION_NAME,
+            config.SQL_INSTANCE_CONNECTION_NAME,
             "asyncpg",
-            user=SQL_USER,
-            password=SQL_PASSWORD,
-            db=SQL_DATABASE_NAME,
+            user=config.SQL_USER,
+            password=config.SQL_PASSWORD,
+            db=config.SQL_DATABASE_NAME,
             ip_type=IPTypes.PUBLIC,
         )
         return conn
@@ -49,8 +49,8 @@ async def init_connection_pool(connector: Connector) -> AsyncEngine:
     pool = create_async_engine(
         "postgresql+asyncpg://",
         async_creator=getconn,
-        pool_size=POOL_SIZE,
-        max_overflow=int(2 * POOL_SIZE),
+        pool_size=config.POOL_SIZE,
+        max_overflow=int(2 * config.POOL_SIZE),
         pool_timeout=60,
         pool_recycle=300
     )
@@ -61,7 +61,7 @@ async def initialize_query_connection():
     global pool, db_semaphore # Add db_semaphore to global scope
     connector = await create_async_connector()
     pool = await init_connection_pool(connector)
-    db_semaphore = asyncio.Semaphore(POOL_SIZE) # Initialize semaphore with a limit, adjust as needed.
+    db_semaphore = asyncio.Semaphore(config.POOL_SIZE) # Initialize semaphore with a limit, adjust as needed.
 
 metadata = MetaData()
 
@@ -113,7 +113,7 @@ async def insert_row(row: ConvoRow) -> Optional[int]:
             if has_row_id:
                 # Check if a row with this row_id exists
                 check_row_id_query = text(f"""
-                    SELECT row_id FROM "{TABLE_NAME}" WHERE row_id = :row_id
+                    SELECT row_id FROM "{config.TABLE_NAME}" WHERE row_id = :row_id
                 """)
                 result = await conn.execute(check_row_id_query, {"row_id": row_id_value})
                 existing_by_row_id = result.fetchone()
@@ -122,7 +122,7 @@ async def insert_row(row: ConvoRow) -> Optional[int]:
                     # Update the specific row with matching row_id
                     logger.info(f"Found existing row with row_id {row_id_value}. Will replace it.")
                     update_query = text(f"""
-                        UPDATE "{TABLE_NAME}" SET
+                        UPDATE "{config.TABLE_NAME}" SET
                             content_hash = :content_hash, 
                             history_json = :history_json,
                             query = :query,
@@ -171,7 +171,7 @@ async def insert_row(row: ConvoRow) -> Optional[int]:
 async def _insert_new_row(conn, row_dict) -> int:
     """Helper function to insert a new row and return its row_id"""
     insert_query = text(f"""
-        INSERT INTO "{TABLE_NAME}" (
+        INSERT INTO "{config.TABLE_NAME}" (
             content_hash, history_json, query, model, generation_params_json, 
             duplication_index, tags, request_cause, request_timestamp, 
             access_timestamps, attempts_metadata_json, response_json, 
@@ -213,7 +213,7 @@ async def find_existing_row_by_content_hash(content_hash: str, tag_subset: Optio
             SELECT
                 *,
                 ROW_NUMBER() OVER(PARTITION BY content_hash ORDER BY insertion_timestamp DESC) as row_num
-            FROM "{TABLE_NAME}"
+            FROM "{config.TABLE_NAME}"
             WHERE content_hash = :content_hash
         """
         
@@ -284,7 +284,7 @@ async def get_batch_ids_by_status_and_tag(status_list: List[RequestStatus], tag:
                 content_hash,
                 current_batch,
                 ROW_NUMBER() OVER(PARTITION BY content_hash ORDER BY insertion_timestamp DESC) as row_num
-            FROM "{TABLE_NAME}"
+            FROM "{config.TABLE_NAME}"
             WHERE last_status = ANY(:status_list)
         """
         
@@ -352,7 +352,7 @@ async def get_rows_by_status_and_tag_and_batch(status_list: List[RequestStatus],
             SELECT
                 *,
                 ROW_NUMBER() OVER(PARTITION BY content_hash ORDER BY insertion_timestamp DESC) as row_num
-            FROM "{TABLE_NAME}"
+            FROM "{config.TABLE_NAME}"
             WHERE last_status = ANY(:status_list)
         """
         
@@ -426,7 +426,7 @@ async def stream_rows_by_status_and_tag(status_list: List[RequestStatus], tag: O
             SELECT
                 *,
                 ROW_NUMBER() OVER(PARTITION BY content_hash ORDER BY insertion_timestamp DESC) as row_num
-            FROM "{TABLE_NAME}"
+            FROM "{config.TABLE_NAME}"
             WHERE last_status = ANY(:status_list)
         """
         
@@ -482,7 +482,7 @@ async def create_table_if_not_exists() -> None:
         Exception if table creation fails.
     """
     try:
-        logger.info(f"Checking if table '{TABLE_NAME}' exists")
+        logger.info(f"Checking if table '{config.TABLE_NAME}' exists")
         
         # Check if table exists using asyncpg-compatible app
         async with get_connection() as conn:
@@ -493,18 +493,18 @@ async def create_table_if_not_exists() -> None:
                     WHERE table_name = :table_name
                 )
             """)
-            result = await conn.execute(query, {"table_name": TABLE_NAME})
+            result = await conn.execute(query, {"table_name": config.TABLE_NAME})
             table_exists = result.scalar()
             
             if table_exists:
-                logger.info(f"Table '{TABLE_NAME}' already exists")
+                logger.info(f"Table '{config.TABLE_NAME}' already exists")
                 return
         
-        logger.info(f"Table '{TABLE_NAME}' does not exist, creating now")
+        logger.info(f"Table '{config.TABLE_NAME}' does not exist, creating now")
         
         # Define the table
         conversations = Table(
-            TABLE_NAME,
+            config.TABLE_NAME,
             metadata,
             Column("row_id", Integer, primary_key=True, autoincrement=True),
             Column("content_hash", String, nullable=False, index=True),
@@ -531,10 +531,10 @@ async def create_table_if_not_exists() -> None:
         async with get_connection() as conn:
             await conn.run_sync(lambda conn: metadata.create_all(conn, tables=[conversations]))
         
-        logger.info(f"Successfully created table '{TABLE_NAME}'")
+        logger.info(f"Successfully created table '{config.TABLE_NAME}'")
     
     except Exception as e:
-        logger.error(f"Failed to create table {TABLE_NAME}: {e}")
+        logger.error(f"Failed to create table {config.TABLE_NAME}: {e}")
 
 
 async def refresh_row(row: ConvoRow) -> Optional[ConvoRow]:
@@ -553,7 +553,7 @@ async def refresh_row(row: ConvoRow) -> Optional[ConvoRow]:
         
     try:
         query_str = f"""
-        SELECT * FROM "{TABLE_NAME}" WHERE row_id = :row_id
+        SELECT * FROM "{config.TABLE_NAME}" WHERE row_id = :row_id
         """
         
         params = {"row_id": row.row_id}
