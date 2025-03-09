@@ -7,10 +7,10 @@ with open("requirements.txt", "r", encoding="utf-8") as fh:
     requirements = [line.strip() for line in fh if line.strip() and not line.startswith("#")]
 
 setup(
-    name="easyinference",
+    name="easyvertexinference",
     version="1.0.0",
     author="Eric",
-    author_email="theeric@google.com",
+    author_email="ericlzhao28@gmail.com",
     description="Easy inference using Google's Vertex AI and Gemini models",
     long_description=long_description,
     long_description_content_type="text/markdown",
