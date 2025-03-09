@@ -747,7 +747,7 @@ async def inference(
     batch_timeout_hours: int = BATCH_TIMEOUT_HOURS_DEFAULT,
     round_robin_enabled: bool = ROUND_ROBIN_ENABLED_DEFAULT,
     round_robin_options: List[str] = ROUND_ROBIN_OPTIONS_DEFAULT,
-    initial_history_json: Optional[dict] = None,
+    initial_histories: Optional[List[dict]] = None,
 ) -> List[List[str]]:
     """
     Processes multiple datapoints through a sequence of prompt functions with parallel execution.
@@ -826,11 +826,8 @@ async def inference(
     round_robin_options : List[str], default=ROUND_ROBIN_OPTIONS_DEFAULT
         List of region options to cycle through when round_robin_enabled is True.
     
-    initial_history_json : Optional[dict], default=None
-        Starting conversation history for the inference session. Of form
-        {"history": [{"role": "user", "parts": {"text": "user query 1"}},
-                     {"role": "model", "parts": {"text": "model response 1"}},
-                     ...]}
+    initial_histories : Optional[List[dict]], default=None
+        Starting conversation histories for the inference session.
     
     Returns:
     --------
@@ -891,7 +888,7 @@ async def inference(
     tasks = []
     semaphore = asyncio.Semaphore(batch_size) if run_fast else None
 
-    async def process_datapoint(dp, duplication_index: int):
+    async def process_datapoint(dp, initial_history_json: Optional[dict], duplication_index: int):
         if semaphore is not None:
             assert run_fast
             async with semaphore:
@@ -940,8 +937,8 @@ async def inference(
             return responses, queries
 
     for duplication_index in duplication_indices or [0]:
-        for dp in datapoints:
-            tasks.append(process_datapoint(dp, duplication_index))
+        for i, dp in enumerate(datapoints):
+            tasks.append(process_datapoint(dp, initial_histories[i] if initial_histories else None, duplication_index))
 
     # If running in batch mode, periodically trigger clearing inference
     if not run_fast:
