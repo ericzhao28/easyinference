@@ -19,11 +19,7 @@ SQL_DATABASE_NAME = os.getenv("SQL_DATABASE_NAME", "your-database")
 SQL_USER = os.getenv("SQL_USER", "db-user")
 SQL_PASSWORD = os.getenv("SQL_PASSWORD", "your-password")
 SQL_INSTANCE_CONNECTION_NAME = os.getenv("SQL_INSTANCE_CONNECTION_NAME", "project-id:region:instance-name")
-
-# Vertex AI Model Configuration
-DEFAULT_MODEL_NAME = os.getenv("DEFAULT_MODEL_NAME", "gemini-1.5-pro-002")
-DEFAULT_MAX_OUTPUT_TOKENS = int(os.getenv("DEFAULT_MAX_OUTPUT_TOKENS", "512"))
-DEFAULT_TEMPERATURE = float(os.getenv("DEFAULT_TEMPERATURE", "0.0"))
+POOL_SIZE = int(os.getenv("POOL_SIZE", "50"))
 
 # Concurrency Configuration
 COOLDOWN_SECONDS_DEFAULT = float(os.getenv("COOLDOWN_SECONDS", "1.0"))
@@ -55,7 +51,6 @@ def reload_config():
     """
     global GCP_PROJECT_ID, GCP_PROJECT_NUM, GCP_REGION, VERTEX_BUCKET
     global TABLE_NAME, SQL_DATABASE_NAME, SQL_USER, SQL_PASSWORD, SQL_INSTANCE_CONNECTION_NAME
-    global DEFAULT_MODEL_NAME, DEFAULT_MAX_OUTPUT_TOKENS, DEFAULT_TEMPERATURE
     global COOLDOWN_SECONDS_DEFAULT, MAX_RETRIES_DEFAULT, BATCH_TIMEOUT_HOURS_DEFAULT
     global ROUND_ROBIN_ENABLED_DEFAULT
     global TEST_PROJECT_ID, TEST_REGION, TEST_BUCKET
@@ -72,11 +67,6 @@ def reload_config():
     SQL_USER = os.getenv("SQL_USER", "db-user")
     SQL_PASSWORD = os.getenv("SQL_PASSWORD", "your-password")
     SQL_INSTANCE_CONNECTION_NAME = os.getenv("SQL_INSTANCE_CONNECTION_NAME", "project-id:region:instance-name")
-
-    # Vertex AI Model Configuration
-    DEFAULT_MODEL_NAME = os.getenv("DEFAULT_MODEL_NAME", "gemini-1.5-pro-002")
-    DEFAULT_MAX_OUTPUT_TOKENS = int(os.getenv("DEFAULT_MAX_OUTPUT_TOKENS", "512"))
-    DEFAULT_TEMPERATURE = float(os.getenv("DEFAULT_TEMPERATURE", "0.0"))
 
     # Concurrency Configuration
     COOLDOWN_SECONDS_DEFAULT = float(os.getenv("COOLDOWN_SECONDS", "1.0"))

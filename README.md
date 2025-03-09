@@ -52,11 +52,7 @@ export SQL_DATABASE_NAME="your-database"
 export SQL_USER="db-user"
 export SQL_PASSWORD="your-password"
 export SQL_INSTANCE_CONNECTION_NAME="project-id:region:instance-name"
-
-# Vertex AI Model Configuration
-export DEFAULT_MODEL_NAME="gemini-1.5-pro-002"
-export DEFAULT_MAX_OUTPUT_TOKENS="512"
-export DEFAULT_TEMPERATURE="0.0"
+export POOL_SIZE="50"
 
 # Additional Configuration
 export COOLDOWN_SECONDS="1.0"
@@ -113,13 +109,14 @@ async def inference(
     temperature: float = 0,                        # Temperature parameter for generation
     max_output_tokens: int = 8192,                 # Maximum tokens to generate in response
     system_prompt: str = "",                       # System prompt to guide model behavior
-    model_name: str = "publishers/google/models/gemini-1.5-flash-002", # Generative model to use
+    model: str = "publishers/google/models/gemini-1.5-flash-002", # Generative model to use
     batch_size: int = 1000,                        # Max concurrent requests or batch job size
     run_fast_timeout: float = 200,                 # Timeout in seconds for fast mode calls
     cooldown_seconds: float = 1.0,                 # Base wait time between retries
     batch_timeout_hours: int = 3,                  # Max runtime before restarting
     round_robin_enabled: bool = False,             # Whether to cycle through regions
     round_robin_options: List[str] = ["us-central1", "us-west1", "us-east1", "us-west4", "us-east4", "us-east5", "us-south1"], # Region options for cycling
+    initial_histories: Optional[List[dict]] = None,   # Starting conversation histories for the inference sessions
 ) -> tuple[List[tuple], str]                       # Returns (results, launch_timestamp_tag)
 ```
 
@@ -143,11 +140,12 @@ async def individual_inference(
     temperature: float = 0,                        # Temperature parameter for generation
     max_output_tokens: int = 8192,                 # Maximum tokens to generate in response
     system_prompt: str = "",                       # System prompt to guide model behavior
-    model_name: str = "publishers/google/models/gemini-1.5-flash-002", # Generative model to use
+    model: str = "publishers/google/models/gemini-1.5-flash-002", # Generative model to use
     run_fast_timeout: float = 200,                 # Timeout in seconds for fast mode calls
     cooldown_seconds: float = 1.0,                 # Base wait time between retries
     round_robin_enabled: bool = False,             # Whether to cycle through regions
     round_robin_options: List[str] = ["us-central1", "us-west1", "us-east1", "us-west4", "us-east4", "us-east5", "us-south1"], # Region options for cycling
+    initial_history_json: Optional[dict] = None,   # Starting conversation history for the inference session
 ) -> tuple[List[str], List[str]]                   # Returns (responses, queries)
 ```
 
