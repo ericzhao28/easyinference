@@ -116,6 +116,7 @@ async def inference(
     batch_timeout_hours: int = 3,                  # Max runtime before restarting
     round_robin_enabled: bool = False,             # Whether to cycle through regions
     round_robin_options: List[str] = ["us-central1", "us-west1", "us-east1", "us-west4", "us-east4", "us-east5", "us-south1"], # Region options for cycling
+    initial_history_json: Optional[dict] = None,   # Starting conversation history for the inference session
 ) -> tuple[List[tuple], str]                       # Returns (results, launch_timestamp_tag)
 ```
 
@@ -144,6 +145,7 @@ async def individual_inference(
     cooldown_seconds: float = 1.0,                 # Base wait time between retries
     round_robin_enabled: bool = False,             # Whether to cycle through regions
     round_robin_options: List[str] = ["us-central1", "us-west1", "us-east1", "us-west4", "us-east4", "us-east5", "us-south1"], # Region options for cycling
+    initial_history_json: Optional[dict] = None,   # Starting conversation history for the inference session
 ) -> tuple[List[str], List[str]]                   # Returns (responses, queries)
 ```
 

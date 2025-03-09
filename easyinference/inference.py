@@ -494,6 +494,7 @@ async def individual_inference(
     cooldown_seconds: float = COOLDOWN_SECONDS_DEFAULT,
     round_robin_enabled: bool = ROUND_ROBIN_ENABLED_DEFAULT,
     round_robin_options: List[str] = ROUND_ROBIN_OPTIONS_DEFAULT,
+    initial_history_json: Optional[dict] = None,
 ) -> List[str]:
     """
     Performs inference for a single datapoint using multiple prompt functions in sequence.
@@ -567,6 +568,12 @@ async def individual_inference(
     round_robin_options : List[str], default=ROUND_ROBIN_OPTIONS_DEFAULT
         List of region options to cycle through when round_robin_enabled is True.
     
+    initial_history_json : Optional[dict], default=None
+        Starting conversation history for the inference session. Of form
+        {"history": [{"role": "user", "parts": {"text": "user query 1"}},
+                     {"role": "model", "parts": {"text": "model response 1"}},
+                     ...]}
+    
     Returns:
     --------
     tuple
@@ -625,7 +632,7 @@ async def individual_inference(
     collected_responses = []
     collected_queries = []
     chat = None
-    history_json = {"history": []}
+    history_json = initial_history_json or {"history": []}
 
     for prompt_func in prompt_functions:
         # Get new history
@@ -740,6 +747,7 @@ async def inference(
     batch_timeout_hours: int = BATCH_TIMEOUT_HOURS_DEFAULT,
     round_robin_enabled: bool = ROUND_ROBIN_ENABLED_DEFAULT,
     round_robin_options: List[str] = ROUND_ROBIN_OPTIONS_DEFAULT,
+    initial_history_json: Optional[dict] = None,
 ) -> List[List[str]]:
     """
     Processes multiple datapoints through a sequence of prompt functions with parallel execution.
@@ -817,6 +825,12 @@ async def inference(
     
     round_robin_options : List[str], default=ROUND_ROBIN_OPTIONS_DEFAULT
         List of region options to cycle through when round_robin_enabled is True.
+    
+    initial_history_json : Optional[dict], default=None
+        Starting conversation history for the inference session. Of form
+        {"history": [{"role": "user", "parts": {"text": "user query 1"}},
+                     {"role": "model", "parts": {"text": "model response 1"}},
+                     ...]}
     
     Returns:
     --------
@@ -899,6 +913,7 @@ async def inference(
                     cooldown_seconds=cooldown_seconds,
                     round_robin_enabled=round_robin_enabled,
                     round_robin_options=round_robin_options,
+                    initial_history_json=initial_history_json,
                 )
                 return responses, queries
         else:
@@ -920,6 +935,7 @@ async def inference(
                 cooldown_seconds=cooldown_seconds,
                 round_robin_enabled=round_robin_enabled,
                 round_robin_options=round_robin_options,
+                initial_history_json=initial_history_json,
             )
             return responses, queries
 
