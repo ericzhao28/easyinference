@@ -117,7 +117,7 @@ async def inference(
     round_robin_enabled: bool = False,             # Whether to cycle through regions
     round_robin_options: List[str] = ["us-central1", "us-west1", "us-east1", "us-west4", "us-east4", "us-east5", "us-south1"], # Region options for cycling
     initial_histories: Optional[List[dict]] = None,   # Starting conversation histories for the inference sessions
-) -> tuple[List[tuple], str]                       # Returns (results, launch_timestamp_tag)
+) -> tuple[List[tuple], str]                       # Returns ([[[response 1, response 2, ...], [query 1, query 2, ...]], ... for each datapoint], launch_timestamp_tag)
 ```
 
 </details>
@@ -146,7 +146,7 @@ async def individual_inference(
     round_robin_enabled: bool = False,             # Whether to cycle through regions
     round_robin_options: List[str] = ["us-central1", "us-west1", "us-east1", "us-west4", "us-east4", "us-east5", "us-south1"], # Region options for cycling
     initial_history_json: Optional[dict] = None,   # Starting conversation history for the inference session
-) -> tuple[List[str], List[str]]                   # Returns (responses, queries)
+) -> tuple[List[str], List[str]]                   # Returns [[response 1, response 2, ...], [query 1, query 2, ...]]
 ```
 
 </details>
@@ -210,9 +210,10 @@ async def process_data():
     )
     
     # Process results
-    for i, (response, query) in enumerate(results):
+    first_datapoint_result, second_datapoint_result = results
+    for i, (response, query) in enumerate(first_datapoint_result):
         print(f"Query: {query}")
-        print(f"Response: {response[0]}")  # First response from the first prompt function
+        print(f"Response: {response}")
     
     return results
 
