@@ -221,10 +221,10 @@ async def run_chat_inference_async(
                 assert tries < 8
         return response.text, response.to_dict(), chat, 0
     except TimeoutError as e:
-        logger.error("Timeout error code:", e)
+        logger.error(f"Timeout error code: {e}")
         return None, None, None, 1
     except ValueError as e:
-        logger.error("Value error code:", e)
+        logger.error(f"Value error code: {e}")
         return None, None, None, 2
 
 
