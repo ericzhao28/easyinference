@@ -18,14 +18,16 @@ from sqlalchemy.dialects.postgresql import ARRAY
 from google.cloud.sql.connector import Connector, IPTypes, create_async_connector
 from contextlib import asynccontextmanager, contextmanager
 import json  # Add this import at the top of the file
+import asyncio # Import asyncio for semaphore
 
 
 from easyinference.cloudsql.schema import ConvoRow, RequestStatus
-from easyinference.config import SQL_INSTANCE_CONNECTION_NAME, SQL_DATABASE_NAME, SQL_USER, SQL_PASSWORD, TABLE_NAME
+from easyinference.config import SQL_INSTANCE_CONNECTION_NAME, SQL_DATABASE_NAME, SQL_USER, SQL_PASSWORD, TABLE_NAME, POOL_SIZE
 
 # Configure logging
 logger = logging.getLogger(__name__)
 pool = None
+db_semaphore = None # Initialize semaphore here
 
 async def init_connection_pool(connector: Connector) -> AsyncEngine:
     """
@@ -47,8 +49,8 @@ async def init_connection_pool(connector: Connector) -> AsyncEngine:
     pool = create_async_engine(
         "postgresql+asyncpg://",
         async_creator=getconn,
-        pool_size=20,
-        max_overflow=30,
+        pool_size=POOL_SIZE,
+        max_overflow=int(2 * POOL_SIZE),
         pool_timeout=60,
         pool_recycle=300
     )
@@ -56,9 +58,10 @@ async def init_connection_pool(connector: Connector) -> AsyncEngine:
 
 # Create the engine once as a module-level variable
 async def initialize_query_connection():
-    global pool
+    global pool, db_semaphore # Add db_semaphore to global scope
     connector = await create_async_connector()
     pool = await init_connection_pool(connector)
+    db_semaphore = asyncio.Semaphore(POOL_SIZE) # Initialize semaphore with a limit, adjust as needed.
 
 metadata = MetaData()
 
@@ -67,8 +70,9 @@ async def get_connection():
     """Async context manager for database connections"""
     if pool is None:
         raise ValueError("Connection pool not initialized. Run initialize_query_connection() first.")
-    async with pool.connect() as connection:
-        yield connection
+    async with db_semaphore: # Acquire semaphore here
+        async with pool.connect() as connection:
+            yield connection
 
 
 async def insert_row(row: ConvoRow) -> Optional[int]:

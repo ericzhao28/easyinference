@@ -19,6 +19,7 @@ SQL_DATABASE_NAME = os.getenv("SQL_DATABASE_NAME", "your-database")
 SQL_USER = os.getenv("SQL_USER", "db-user")
 SQL_PASSWORD = os.getenv("SQL_PASSWORD", "your-password")
 SQL_INSTANCE_CONNECTION_NAME = os.getenv("SQL_INSTANCE_CONNECTION_NAME", "project-id:region:instance-name")
+POOL_SIZE = int(os.getenv("POOL_SIZE", "50"))
 
 # Vertex AI Model Configuration
 DEFAULT_MODEL_NAME = os.getenv("DEFAULT_MODEL_NAME", "gemini-1.5-pro-002")

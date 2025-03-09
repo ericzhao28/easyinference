@@ -52,6 +52,7 @@ export SQL_DATABASE_NAME="your-database"
 export SQL_USER="db-user"
 export SQL_PASSWORD="your-password"
 export SQL_INSTANCE_CONNECTION_NAME="project-id:region:instance-name"
+export POOL_SIZE="50"
 
 # Vertex AI Model Configuration
 export DEFAULT_MODEL_NAME="gemini-1.5-pro-002"
