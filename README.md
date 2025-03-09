@@ -113,7 +113,7 @@ async def inference(
     temperature: float = 0,                        # Temperature parameter for generation
     max_output_tokens: int = 8192,                 # Maximum tokens to generate in response
     system_prompt: str = "",                       # System prompt to guide model behavior
-    model_name: str = "publishers/google/models/gemini-1.5-flash-002", # Generative model to use
+    model: str = "publishers/google/models/gemini-1.5-flash-002", # Generative model to use
     batch_size: int = 1000,                        # Max concurrent requests or batch job size
     run_fast_timeout: float = 200,                 # Timeout in seconds for fast mode calls
     cooldown_seconds: float = 1.0,                 # Base wait time between retries
@@ -143,7 +143,7 @@ async def individual_inference(
     temperature: float = 0,                        # Temperature parameter for generation
     max_output_tokens: int = 8192,                 # Maximum tokens to generate in response
     system_prompt: str = "",                       # System prompt to guide model behavior
-    model_name: str = "publishers/google/models/gemini-1.5-flash-002", # Generative model to use
+    model: str = "publishers/google/models/gemini-1.5-flash-002", # Generative model to use
     run_fast_timeout: float = 200,                 # Timeout in seconds for fast mode calls
     cooldown_seconds: float = 1.0,                 # Base wait time between retries
     round_robin_enabled: bool = False,             # Whether to cycle through regions
