@@ -43,7 +43,7 @@ jobs:
 
     environment:
       name: pypi
-      url: https://pypi.org/project/easyvertexinference/
+      url: https://pypi.org/p/easyvertexinference/
 
     steps:
       - name: Retrieve release distributions
