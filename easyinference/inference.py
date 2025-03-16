@@ -190,6 +190,8 @@ async def run_chat_inference_async(
 
         history = []
         for turn in row.history_json["history"]:
+            if not turn["parts"]["text"]:
+                raise ValueError(f"Empty text in history: {row.history_json}")
             history.append(
                 Content(
                     role=turn["role"],
@@ -212,6 +214,8 @@ async def run_chat_inference_async(
                     vertexai.init(project=GCP_PROJECT_ID, location=region)
                     ROUND_ROBIN_IDX += 1
                 assert initial_chat_history == len(chat.history)
+                if not user_query:
+                    raise ValueError(f"Empty query: {row.query}")
                 response = await asyncio.wait_for(chat.send_message_async(user_query), timeout=timeout)
                 response.text
                 success = True

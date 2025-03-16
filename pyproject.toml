@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "easyvertexinference"
-version = "1.0.1"
+version = "1.0.2"
 description = "Easy inference using Google's Vertex AI and Gemini models"
 readme = "README.md"
 authors = [

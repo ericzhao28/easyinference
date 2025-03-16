@@ -8,7 +8,7 @@ with open("requirements.txt", "r", encoding="utf-8") as fh:
 
 setup(
     name="easyvertexinference",
-    version="1.0.1",
+    version="1.0.2",
     author="Eric",
     author_email="ericlzhao28@gmail.com",
     description="Easy inference using Google's Vertex AI and Gemini models",
