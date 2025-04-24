@@ -224,6 +224,8 @@ async def run_chat_inference_async(
                 tries += 1
                 await asyncio.sleep(cooldown_seconds * (2 ** tries))
                 assert tries < 8
+        if not response.text:
+            raise ValueError("EMPTY TEXT!")
         return response.text, response.to_dict(), chat, 0
     except TimeoutError as e:
         logger.error(f"Timeout error code: {e}")
