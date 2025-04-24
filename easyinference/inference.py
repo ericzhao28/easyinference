@@ -191,7 +191,8 @@ async def run_chat_inference_async(
         history = []
         for turn in row.history_json["history"]:
             if not turn["parts"]["text"]:
-                raise ValueError(f"Empty text in history: {row.history_json}")
+                logger.error(f"Empty text in history: {row.history_json}")
+                return None, None, None, 3
             history.append(
                 Content(
                     role=turn["role"],
