@@ -379,7 +379,7 @@ async def run_clearing_inference(tag: str, batch_size: int, run_batch_jobs: bool
                             update_tasks.append(insert_row(row))
                             continue
                         try:
-                            text_response = all_responses[row.content_hash]["candidates"][0]["content"]["parts"][0]["text"]
+                            text_response = all_responses[row.content_hash]["candidates"][0]["content"]["parts"][-1]["text"]
                             row.last_status = RequestStatus.SUCCEEDED
                             row.response_json = {"text": text_response}
                             row.access_timestamps.append(datetime.now(timezone.utc).isoformat())
