@@ -139,7 +139,7 @@ async def individual_inference(
     allow_failure: bool = False,                   # If True, continues after max retries with error messages
     attempts_cap: int = 8,                         # Maximum number of retry attempts
     temperature: float = 0,                        # Temperature parameter for generation
-    max_output_tokens: int = 8192,                 # Maximum tokens to generate in response
+    max_output_tokens: int = 65535,                 # Maximum tokens to generate in response
     thinking_budget_tokens: int = 24576,           # Maximum tokens to generate in response
     system_prompt: str = "",                       # System prompt to guide model behavior
     model: str = "gemini-2.5-pro-preview-03-25", # Generative model to use
@@ -308,7 +308,7 @@ Stored under `generation_params_json` (JSON):
 ```json
 {
   "temperature": 0.7,
-  "max_output_tokens": 8192,
+  "max_output_tokens": 65535,
   "system_prompt": "You are a helpful assistant..."
 }
 ```
