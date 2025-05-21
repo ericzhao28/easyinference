@@ -8,6 +8,7 @@ import os
 from typing import List
 
 # Google Cloud Platform Configuration
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "your-api-key")
 GCP_PROJECT_ID = os.getenv("GCP_PROJECT_ID", "your-project-id")
 GCP_PROJECT_NUM = os.getenv("GCP_PROJECT_NUM", "123456789012")
 GCP_REGION = os.getenv("GCP_REGION", "us-central1")
