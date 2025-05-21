@@ -18,13 +18,23 @@ from typing import List, Callable, Any, Optional
 from datetime import datetime, timezone, timedelta
 
 from google.cloud import storage
-import vertexai
 from google.api_core.exceptions import RetryError, ResourceExhausted, ServiceUnavailable, InternalServerError, Cancelled
 from google.auth.exceptions import TransportError
+
+from google import genai
+from google.genai.types import (
+    GenerateContentConfig,
+    HarmCategory,
+    HarmBlockThreshold,
+    HttpOptions,
+    SafetySetting,
+    CreateBatchJobConfig,
+    ThinkingConfig,
+    ModelContent,
+    UserContent,
+)
+
 from .cloudsql.schema import ConvoRow, RequestStatus, RequestCause, RequestStatus
-from vertexai.preview.batch_prediction import BatchPredictionJob
-from vertexai.generative_models import Content, GenerativeModel, Part
-from vertexai.preview import generative_models
 from .cloudsql.table_utils import (
     find_existing_row_by_content_hash,
     insert_row,
@@ -34,7 +44,7 @@ from .cloudsql.table_utils import (
     refresh_row,   
 )
 
-from .config import COOLDOWN_SECONDS_DEFAULT, MAX_RETRIES_DEFAULT, BATCH_TIMEOUT_HOURS_DEFAULT, ROUND_ROBIN_ENABLED_DEFAULT, ROUND_ROBIN_OPTIONS_DEFAULT, GCP_PROJECT_ID, VERTEX_BUCKET
+from .config import COOLDOWN_SECONDS_DEFAULT, MAX_RETRIES_DEFAULT, BATCH_TIMEOUT_HOURS_DEFAULT, ROUND_ROBIN_ENABLED_DEFAULT, ROUND_ROBIN_OPTIONS_DEFAULT, GCP_PROJECT_ID, VERTEX_BUCKET, GEMINI_API_KEY
 
 
 # Configure logging
@@ -43,23 +53,37 @@ logger = logging.getLogger(__name__)
 storage_client = storage.Client(project="navresearch")
 bucket = storage_client.bucket(f"{VERTEX_BUCKET}")
 
-# For convenience:
-job_state_map = {
-    "unspecified": 0,
-    "queued": 1,
-    "pending": 2,
-    "running": 3,
-    "succeeded": 4,
-    "failed": 5,
-    "cancelling": 6,
-    "cancelled": 7,
-    "paused": 8,
-    "expired": 9,
-    "updating": 10,
-    "partially_succeeded": 11,
-}
-
 ROUND_ROBIN_IDX = 0
+_ALWAYS_ALLOW_SAFETY: list[SafetySetting] = [
+    SafetySetting(
+        category=HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+        threshold=HarmBlockThreshold.BLOCK_NONE,
+    ),
+    SafetySetting(
+        category=HarmCategory.HARM_CATEGORY_HARASSMENT,
+        threshold=HarmBlockThreshold.BLOCK_NONE,
+    ),
+    SafetySetting(
+        category=HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+        threshold=HarmBlockThreshold.BLOCK_NONE,
+    ),
+    SafetySetting(
+        category=HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+        threshold=HarmBlockThreshold.BLOCK_NONE,
+    ),
+]
+
+_GENAI_CLIENTS = {}
+
+def _get_client(location=None) -> genai.Client:
+    global _GENAI_CLIENTS
+    if location is None:
+        location = ROUND_ROBIN_OPTIONS_DEFAULT[0]
+    if location in _GENAI_CLIENTS:
+        return _GENAI_CLIENTS[location]
+    # _GENAI_CLIENT[location] = genai.Client(api_key=GEMINI_API_KEY, http_options=HttpOptions(api_version='v1alpha'))  # Gemini Developer API
+    _GENAI_CLIENTS[location] = genai.Client(vertexai=True, project=GCP_PROJECT_ID, location=location, http_options=HttpOptions(api_version='v1'))
+    return _GENAI_CLIENTS[location]
 
 
 async def run_chat_inference_async(
@@ -159,49 +183,38 @@ async def run_chat_inference_async(
     global ROUND_ROBIN_IDX
     
     if chat is None:
-        safety_config = [
-            generative_models.SafetySetting(
-                category=generative_models.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-                threshold=generative_models.HarmBlockThreshold.BLOCK_NONE,
-            ),
-            generative_models.SafetySetting(
-                category=generative_models.HarmCategory.HARM_CATEGORY_HARASSMENT,
-                threshold=generative_models.HarmBlockThreshold.BLOCK_NONE,
-            ),
-            generative_models.SafetySetting(
-                category=generative_models.HarmCategory.HARM_CATEGORY_HATE_SPEECH,
-                threshold=generative_models.HarmBlockThreshold.BLOCK_NONE,
-            ),
-            generative_models.SafetySetting(
-                category=generative_models.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-                threshold=generative_models.HarmBlockThreshold.BLOCK_NONE,
-            ),
-        ]
-        gen_config = {"temperature": 0, "max_output_tokens": 8192}
         parsed_config = row.generation_params_json
-        if "temperature" in parsed_config:
-            gen_config["temperature"] = parsed_config["temperature"]
-        if "max_output_tokens" in parsed_config:
-            gen_config["max_output_tokens"] = parsed_config["max_output_tokens"]
-
+        thinking_config = None
+        if parsed_config.get("thinking_budget"):
+            thinking_config = ThinkingConfig(include_thoughts=True, thinking_budget=parsed_config.get("thinking_budget"))
+        config = GenerateContentConfig(
+            system_instruction=parsed_config.get("system_prompt", None),
+            max_output_tokens=parsed_config.get("max_output_tokens", 65535),
+            temperature=parsed_config.get("temperature", 0),
+            thinking_config=thinking_config,
+            safety_settings=_ALWAYS_ALLOW_SAFETY,
+        )
         logging.info(f"Async querying model {row.model}.")
-        model = GenerativeModel(row.model, safety_settings=safety_config, generation_config=gen_config,
-                                system_instruction=parsed_config.get("system_prompt", None))
-
         history = []
         for turn in row.history_json["history"]:
             if not turn["parts"]["text"]:
                 logger.error(f"Empty text in history: {row.history_json}")
                 return None, None, None, 3
-            history.append(
-                Content(
-                    role=turn["role"],
-                    parts=[Part.from_text(turn["parts"]["text"])],
-                )
-            )
-        chat = model.start_chat(history=history, response_validation=False)
+            if turn["role"] == "user":
+                history.append(UserContent(turn["parts"]["text"]))
+            elif turn["role"] == "model":
+                history.append(ModelContent(turn["parts"]["text"]))
+            else:
+                raise ValueError()
+        if round_robin_enabled:
+            region = round_robin_options[ROUND_ROBIN_IDX % len(round_robin_options)]
+            client = _get_client(region)
+            ROUND_ROBIN_IDX += 1
+        else:
+            client = _get_client()
+        chat = client.aio.chats.create(model=row.model, history=history, config=config)
     
-    initial_chat_history = len(chat.history)
+    # initial_chat_history = len(chat.get_history())
 
     try:
         success = False
@@ -210,14 +223,10 @@ async def run_chat_inference_async(
         while not success:
             try:
                 user_query = row.query
-                if round_robin_enabled:
-                    region = round_robin_options[ROUND_ROBIN_IDX % len(round_robin_options)]
-                    vertexai.init(project=GCP_PROJECT_ID, location=region)
-                    ROUND_ROBIN_IDX += 1
-                assert initial_chat_history == len(chat.history)
+                # assert initial_chat_history == len(chat.get_history())
                 if not user_query:
                     raise ValueError(f"Empty query: {row.query}")
-                response = await asyncio.wait_for(chat.send_message_async(user_query), timeout=timeout)
+                response = await asyncio.wait_for(chat.send_message(user_query), timeout=timeout)
                 response.text
                 success = True
             except (RetryError, ResourceExhausted, ServiceUnavailable, InternalServerError, Cancelled, TransportError) as e:
@@ -226,7 +235,8 @@ async def run_chat_inference_async(
                 assert tries < 8
         if not response.text:
             raise ValueError("EMPTY TEXT!")
-        return response.text, response.to_dict(), chat, 0
+        metadata = {"create_time": str(response.create_time), **{k: v for k, v in dict(response.usage_metadata).items() if isinstance(v, int) or v is None or isinstance(v, str)}}
+        return response.text, metadata, chat, 0
     except TimeoutError as e:
         logger.error(f"Timeout error code: {e}")
         return None, None, None, 1
@@ -311,14 +321,14 @@ async def run_clearing_inference(tag: str, batch_size: int, run_batch_jobs: bool
         # Check on current batch prediction jobs
         batch_ids = await get_batch_ids_by_status_and_tag([RequestStatus.RUNNING, RequestStatus.PENDING], tag)
         for batch_id in batch_ids:
-            job = BatchPredictionJob(batch_id)
+            job = _get_client().batches.get(batch_id)
             logger.info(f"Retrieving all incomplete rows corresponding to batch job {batch_id}")
             rows = await get_rows_by_status_and_tag_and_batch([RequestStatus.WAITING, RequestStatus.FAILED, RequestStatus.PENDING, RequestStatus.RUNNING], tag, batch_id)
 
             logger.info(f"Checking batch job {batch_id} with state {job.state} and this many rows remaining: {len(rows)}")
 
             # Handle if job has failed
-            if job.state in [job_state_map["cancelled"], job_state_map["cancelling"], job_state_map["failed"], job_state_map["expired"]]:
+            if job.state in ["JOB_STATE_CANCELLED", "JOB_STATE_CANCELLING", "JOB_STATE_FAILED", "JOB_STATE_EXPIRED"]:
                 logger.info(f"Handling failed batch job {batch_id}")
                 # Convert sequential updates to parallel using gather
                 update_tasks = []
@@ -330,10 +340,10 @@ async def run_clearing_inference(tag: str, batch_size: int, run_batch_jobs: bool
                 await asyncio.gather(*update_tasks)
             
             # Optionally restart if job is running
-            if job.state == job_state_map["running"]:
+            if job.state == "JOB_STATE_RUNNING":
                 logger.info(f"Checking running batch job {batch_id}")
-                if job._gca_resource.start_time:
-                    if (datetime.now(timezone.utc) - job._gca_resource.start_time) > timedelta(hours=batch_timeout_hours):
+                if job.start_time:
+                    if (datetime.now(timezone.utc) - job.start_time) > timedelta(hours=batch_timeout_hours):
                         logger.warning(f"Job {batch_id} has been running for more than {batch_timeout_hours} hours. Restarting...")
                         job.cancel()
                         # Convert sequential updates to parallel using gather
@@ -347,11 +357,11 @@ async def run_clearing_inference(tag: str, batch_size: int, run_batch_jobs: bool
                         await asyncio.gather(*update_tasks)
     
             # Handle successful batch jobs
-            if job.state in [job_state_map["succeeded"], job_state_map["partially_succeeded"]]:
+            if job.state in ["JOB_STATE_SUCCEEDED", "JOB_STATE_PARTIALLY_SUCCEEDED"]:
                 logger.info(f"Handling successful batch job {batch_id}")
                 all_responses = {}
 
-                blobs = list(bucket.list_blobs(prefix=f"{job._gca_resource.output_config.gcs_destination.output_uri_prefix.split(VERTEX_BUCKET + '/')[1]}"))
+                blobs = list(bucket.list_blobs(prefix=f"{job.dest.gcs_uri.split(VERTEX_BUCKET + '/')[1]}"))
                 
                 blobs = sorted(blobs, key=lambda x: x.name)
                 for blob in blobs:
@@ -414,7 +424,7 @@ async def run_clearing_inference(tag: str, batch_size: int, run_batch_jobs: bool
                             "contents": request_contents,
                             "generationConfig": {
                                 "temperature": row.generation_params_json.get("temperature", 0),
-                                "maxOutputTokens": row.generation_params_json.get("max_output_tokens", 8192),
+                                "maxOutputTokens": row.generation_params_json.get("max_output_tokens", 65535),
                             },
                             "safetySettings": [
                                 {
@@ -454,16 +464,18 @@ async def run_clearing_inference(tag: str, batch_size: int, run_batch_jobs: bool
                     if round_robin_enabled:
                         region = round_robin_options[ROUND_ROBIN_IDX % len(round_robin_options)]
                         logger.info(f"Running in region {region}")
-                        vertexai.init(project=GCP_PROJECT_ID, location=region)
+                        client = _get_client(region)
                         ROUND_ROBIN_IDX += 1
+                    else:
+                        client = _get_client()
 
                     batch_input_path_gcs = f"gs://{VERTEX_BUCKET}/{batch_input_path}"
                     output_uri_prefix = f"gs://{VERTEX_BUCKET}/batch_outputs/{model_name}/{timestamp}.jsonl"
 
-                    job = BatchPredictionJob.submit(
-                        source_model=model,
-                        input_dataset=batch_input_path_gcs,
-                        output_uri_prefix=output_uri_prefix,
+                    job = client.batches.create(
+                        model=model,
+                        src=batch_input_path_gcs,
+                        config=CreateBatchJobConfig(dest=output_uri_prefix),
                     )
                     # Parallelize row updates after batch job creation
                     update_tasks = []
@@ -494,9 +506,10 @@ async def individual_inference(
     allow_failure: bool = False,
     attempts_cap: int = MAX_RETRIES_DEFAULT,
     temperature: float = 0,
-    max_output_tokens: int = 8192,
+    max_output_tokens: int = 65535,
+    thinking_budget_tokens: Optional[int] = 24576,
     system_prompt: str = "",
-    model: str = "publishers/google/models/gemini-1.5-flash-002",
+    model: str = "gemini-2.5-pro-preview-03-25",
     run_fast_timeout: float = 200,
     cooldown_seconds: float = COOLDOWN_SECONDS_DEFAULT,
     round_robin_enabled: bool = ROUND_ROBIN_ENABLED_DEFAULT,
@@ -554,13 +567,16 @@ async def individual_inference(
     temperature : float, default=0
         Temperature parameter for generation. Higher values increase randomness.
     
-    max_output_tokens : int, default=8192
+    max_output_tokens : int, default=65535
         Maximum number of tokens to generate in the response.
     
+    thinking_budget_tokens : Optional[int], default=None
+        Maximum number of tokens to generate in the thinking trace.
+
     system_prompt : str, default=""
         System prompt to guide model behavior. Empty string means no system prompt.
     
-    model : str, default="publishers/google/models/gemini-1.5-flash-002"
+    model : str, default="gemini-2.5-pro-preview-03-25"
         Identifier of the generative model to use for inference.
     
     run_fast_timeout : float, default=200
@@ -648,6 +664,9 @@ async def individual_inference(
             "temperature": temperature,
             "max_output_tokens": max_output_tokens,
         }
+        if thinking_budget_tokens is not None:
+            assert run_fast
+            generation_params_json["thinking_budget_tokens"] = thinking_budget_tokens
         if system_prompt:
             generation_params_json["system_prompt"] = system_prompt
 
@@ -745,9 +764,10 @@ async def inference(
     allow_failure: bool = False,
     attempts_cap: int = MAX_RETRIES_DEFAULT,
     temperature: float = 0,
-    max_output_tokens: int = 8192,
+    max_output_tokens: int = 65535,
+    thinking_budget_tokens: Optional[int] = 24576,
     system_prompt: str = "",
-    model: str = "publishers/google/models/gemini-1.5-flash-002",
+    model: str = "gemini-2.5-pro-preview-03-25",
     batch_size: int = 1000,
     run_fast_timeout: float = 200,
     cooldown_seconds: float = COOLDOWN_SECONDS_DEFAULT,
@@ -805,13 +825,16 @@ async def inference(
     temperature : float, default=0
         Temperature parameter for generation. Higher values increase randomness.
     
-    max_output_tokens : int, default=8192
+    max_output_tokens : int, default=65535
         Maximum number of tokens to generate in the response.
     
+    thinking_budget_tokens : int, default=None
+        Maximum number of tokens to generate in the thinking trace.
+
     system_prompt : str, default=""
         System prompt to guide model behavior. Empty string means no system prompt.
     
-    model : str, default="publishers/google/models/gemini-1.5-flash-002"
+    model : str, default="gemini-2.5-pro-preview-03-25"
         Identifier of the generative model to use for inference.
     
     batch_size : int, default=1000
@@ -912,6 +935,7 @@ async def inference(
                     attempts_cap=attempts_cap,
                     temperature=temperature,
                     max_output_tokens=max_output_tokens,
+                    thinking_budget_tokens=thinking_budget_tokens,
                     system_prompt=system_prompt,
                     model=model,
                     cooldown_seconds=cooldown_seconds,
