@@ -78,12 +78,13 @@ _GENAI_CLIENTS = {}
 
 def _get_client(location=None) -> genai.Client:
     global _GENAI_CLIENTS
-    if location is None:
-        location = ROUND_ROBIN_OPTIONS_DEFAULT[0]
     if location in _GENAI_CLIENTS:
         return _GENAI_CLIENTS[location]
     # _GENAI_CLIENT[location] = genai.Client(api_key=GEMINI_API_KEY, http_options=HttpOptions(api_version='v1alpha'))  # Gemini Developer API
-    _GENAI_CLIENTS[location] = genai.Client(vertexai=True, project=GCP_PROJECT_ID, location=location, http_options=HttpOptions(api_version='v1'))
+    if location is None:
+        _GENAI_CLIENTS[location] = genai.Client(vertexai=True, project=GCP_PROJECT_ID, http_options=HttpOptions(api_version='v1'))
+    else:
+        _GENAI_CLIENTS[location] = genai.Client(vertexai=True, project=GCP_PROJECT_ID, location=location, http_options=HttpOptions(api_version='v1'))
     return _GENAI_CLIENTS[location]
 
 
