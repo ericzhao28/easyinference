@@ -705,6 +705,7 @@ async def individual_inference(
         if row.response_json:
             response = row.response_json["text"]
             assert row.last_status == RequestStatus.SUCCEEDED
+            logger.info(f"Row {row.content_hash} has response, will not run inference")
         else:
             logger.info(f"Row {row.content_hash} has no response, will run inference")
 
