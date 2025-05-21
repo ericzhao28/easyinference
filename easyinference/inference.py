@@ -12,6 +12,7 @@ Manages retries, database updates, and inference calls.
 import tempfile
 import asyncio
 import random
+import httpx
 import time
 import logging
 import json
@@ -241,7 +242,7 @@ async def run_chat_inference_async(
                 response = await asyncio.wait_for(chat.send_message(user_query), timeout=timeout)
                 response.text
                 success = True
-            except (ClientError, RetryError, ResourceExhausted, ServiceUnavailable, InternalServerError, Cancelled, TransportError, ServerError) as e:
+            except (ClientError, RetryError, ResourceExhausted, ServiceUnavailable, InternalServerError, Cancelled, TransportError, ServerError, httpx.RemoteProtocolError) as e:
                 tries += 1
                 await asyncio.sleep(cooldown_seconds * (2 ** tries))
                 assert tries < 8
