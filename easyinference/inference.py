@@ -24,6 +24,7 @@ from google.auth.exceptions import TransportError
 from google import genai
 from google.genai.types import (
     GenerateContentConfig,
+    AutomaticFunctionCallingConfig,
     HarmCategory,
     HarmBlockThreshold,
     HttpOptions,
@@ -193,6 +194,7 @@ async def run_chat_inference_async(
             temperature=parsed_config.get("temperature", 0),
             thinking_config=thinking_config,
             safety_settings=_ALWAYS_ALLOW_SAFETY,
+            automatic_function_calling=AutomaticFunctionCallingConfig(maximum_remote_calls=4096),
         )
         logging.info(f"Async querying model {row.model}.")
         history = []
