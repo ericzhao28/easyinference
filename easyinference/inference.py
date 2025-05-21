@@ -20,6 +20,7 @@ from datetime import datetime, timezone, timedelta
 
 from google.cloud import storage
 from google.api_core.exceptions import RetryError, ResourceExhausted, ServiceUnavailable, InternalServerError, Cancelled
+from google.genai.errors import ClientError
 from google.auth.exceptions import TransportError
 
 from google import genai
@@ -240,7 +241,7 @@ async def run_chat_inference_async(
                 response = await asyncio.wait_for(chat.send_message(user_query), timeout=timeout)
                 response.text
                 success = True
-            except (RetryError, ResourceExhausted, ServiceUnavailable, InternalServerError, Cancelled, TransportError) as e:
+            except (ClientError, RetryError, ResourceExhausted, ServiceUnavailable, InternalServerError, Cancelled, TransportError) as e:
                 tries += 1
                 await asyncio.sleep(cooldown_seconds * (2 ** tries))
                 assert tries < 8
