@@ -12,6 +12,7 @@ Manages retries, database updates, and inference calls.
 import tempfile
 import asyncio
 import random
+import time
 import logging
 import json
 from typing import List, Callable, Any, Optional
@@ -47,6 +48,8 @@ from .cloudsql.table_utils import (
 
 from .config import COOLDOWN_SECONDS_DEFAULT, MAX_RETRIES_DEFAULT, BATCH_TIMEOUT_HOURS_DEFAULT, ROUND_ROBIN_ENABLED_DEFAULT, ROUND_ROBIN_OPTIONS_DEFAULT, GCP_PROJECT_ID, VERTEX_BUCKET, GEMINI_API_KEY
 
+_CLIENT_EXPIRY_SECONDS = 20 * 60  # 20 minutes
+
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -78,14 +81,19 @@ _GENAI_CLIENTS = {}
 
 def _get_client(location=None) -> genai.Client:
     global _GENAI_CLIENTS
-    if location in _GENAI_CLIENTS:
-        return _GENAI_CLIENTS[location]
-    # _GENAI_CLIENT[location] = genai.Client(api_key=GEMINI_API_KEY, http_options=HttpOptions(api_version='v1alpha'))  # Gemini Developer API
+    now = time.time()
+    client_entry = _GENAI_CLIENTS.get(location)
+    if client_entry is not None:
+        client, created_time = client_entry
+        if now - created_time < _CLIENT_EXPIRY_SECONDS:
+            return client
     if location is None:
-        _GENAI_CLIENTS[location] = genai.Client(vertexai=True, project=GCP_PROJECT_ID, http_options=HttpOptions(api_version='v1'))
+        # client = genai.Client(api_key=GEMINI_API_KEY, http_options=HttpOptions(api_version='v1alpha'))  # Gemini Developer API
+        client = genai.Client(vertexai=True, project=GCP_PROJECT_ID, http_options=HttpOptions(api_version='v1'))
     else:
-        _GENAI_CLIENTS[location] = genai.Client(vertexai=True, project=GCP_PROJECT_ID, location=location, http_options=HttpOptions(api_version='v1'))
-    return _GENAI_CLIENTS[location]
+        client = genai.Client(vertexai=True, project=GCP_PROJECT_ID, location=location, http_options=HttpOptions(api_version='v1'))
+    _GENAI_CLIENTS[location] = (client, now)
+    return client
 
 
 async def run_chat_inference_async(
