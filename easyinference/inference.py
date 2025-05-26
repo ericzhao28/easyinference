@@ -708,6 +708,7 @@ async def individual_inference(
                 await insert_row(row)
 
         # Update row with access information
+        row.attempts_cap = max(row.attempts_cap, attempts_cap)
         row.access_timestamps.append(datetime.now(timezone.utc).isoformat())
         row.tags = sorted(set(row.tags + all_tags))
 
