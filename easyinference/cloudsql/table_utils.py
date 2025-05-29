@@ -72,7 +72,7 @@ async def get_connection():
         raise ValueError("…")
     logger.debug("Waiting on semaphore…")
     async with db_semaphore:
-        logger.debug("Semaphore acquired, checking out connection from pool (size=%s)…", pool.size())
+        logger.debug("Semaphore acquired.")
         async with pool.connect() as conn:
             logger.debug("→ Checked out connection %r", conn)
             try:
