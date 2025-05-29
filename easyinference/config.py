@@ -20,7 +20,7 @@ SQL_DATABASE_NAME = os.getenv("SQL_DATABASE_NAME", "your-database")
 SQL_USER = os.getenv("SQL_USER", "db-user")
 SQL_PASSWORD = os.getenv("SQL_PASSWORD", "your-password")
 SQL_INSTANCE_CONNECTION_NAME = os.getenv("SQL_INSTANCE_CONNECTION_NAME", "project-id:region:instance-name")
-POOL_SIZE = int(os.getenv("POOL_SIZE", "50"))
+POOL_SIZE = int(os.getenv("POOL_SIZE", "1"))
 
 # Concurrency Configuration
 COOLDOWN_SECONDS_DEFAULT = float(os.getenv("COOLDOWN_SECONDS", "1.0"))
