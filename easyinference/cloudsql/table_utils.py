@@ -51,8 +51,9 @@ async def init_connection_pool(connector: Connector) -> AsyncEngine:
         async_creator=getconn,
         pool_size=config.POOL_SIZE,
         max_overflow=int(2 * config.POOL_SIZE),
-        pool_timeout=60,
-        pool_recycle=300
+        pool_timeout=120,
+        pool_recycle=300,
+        pool_pre_ping=True,
     )
     return pool
 
@@ -67,13 +68,17 @@ metadata = MetaData()
 
 @asynccontextmanager
 async def get_connection():
-    """Async context manager for database connections"""
     if pool is None:
-        raise ValueError("Connection pool not initialized. Run initialize_query_connection() first.")
-    async with db_semaphore: # Acquire semaphore here
-        async with pool.connect() as connection:
-            yield connection
-
+        raise ValueError("…")
+    logger.debug("Waiting on semaphore…")
+    async with db_semaphore:
+        logger.debug("Semaphore acquired, checking out connection from pool (size=%s)…", pool.size())
+        async with pool.connect() as conn:
+            logger.debug("→ Checked out connection %r", conn)
+            try:
+                yield conn
+            finally:
+                logger.debug("← Connection %r released", conn)
 
 async def insert_row(row: ConvoRow) -> Optional[int]:
     """
