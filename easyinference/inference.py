@@ -523,7 +523,7 @@ async def individual_inference(
     max_output_tokens: int = 65535,
     thinking_budget_tokens: Optional[int] = 32768,
     system_prompt: str = "",
-    model: str = "gemini-2.5-pro-preview-03-25",
+    model: str = "gemini-2.5-pro-preview-06-05",
     run_fast_timeout: float = 200,
     cooldown_seconds: float = COOLDOWN_SECONDS_DEFAULT,
     round_robin_enabled: bool = ROUND_ROBIN_ENABLED_DEFAULT,
@@ -590,7 +590,7 @@ async def individual_inference(
     system_prompt : str, default=""
         System prompt to guide model behavior. Empty string means no system prompt.
     
-    model : str, default="gemini-2.5-pro-preview-03-25"
+    model : str, default="gemini-2.5-pro-preview-06-05"
         Identifier of the generative model to use for inference.
     
     run_fast_timeout : float, default=200
@@ -783,7 +783,7 @@ async def inference(
     max_output_tokens: int = 65535,
     thinking_budget_tokens: Optional[int] = 32768,
     system_prompt: str = "",
-    model: str = "gemini-2.5-pro-preview-03-25",
+    model: str = "gemini-2.5-pro-preview-06-05",
     batch_size: int = 1000,
     run_fast_timeout: float = 200,
     cooldown_seconds: float = COOLDOWN_SECONDS_DEFAULT,
@@ -850,7 +850,7 @@ async def inference(
     system_prompt : str, default=""
         System prompt to guide model behavior. Empty string means no system prompt.
     
-    model : str, default="gemini-2.5-pro-preview-03-25"
+    model : str, default="gemini-2.5-pro-preview-06-05"
         Identifier of the generative model to use for inference.
     
     batch_size : int, default=1000
