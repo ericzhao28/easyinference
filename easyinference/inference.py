@@ -198,8 +198,8 @@ async def run_chat_inference_async(
     if chat is None:
         parsed_config = row.generation_params_json
         thinking_config = None
-        if parsed_config.get("thinking_budget"):
-            thinking_config = ThinkingConfig(include_thoughts=True, thinking_budget=parsed_config.get("thinking_budget"))
+        if parsed_config.get("thinking_budget_tokens"):
+            thinking_config = ThinkingConfig(include_thoughts=True, thinking_budget=parsed_config["thinking_budget_tokens"])
         config = GenerateContentConfig(
             system_instruction=parsed_config.get("system_prompt", None),
             max_output_tokens=parsed_config.get("max_output_tokens", 65535),
