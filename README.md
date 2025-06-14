@@ -45,6 +45,7 @@ export GCP_PROJECT_ID="your-project-id"
 export GCP_PROJECT_NUM="123456789012"
 export GCP_REGION="us-central1"
 export VERTEX_BUCKET="your-gcs-bucket"
+export GEMINI_API_KEY=""
 
 # SQL Configuration
 export TABLE_NAME="your-table"
@@ -53,6 +54,11 @@ export SQL_USER="db-user"
 export SQL_PASSWORD="your-password"
 export SQL_INSTANCE_CONNECTION_NAME="project-id:region:instance-name"
 export POOL_SIZE="50"
+
+# Local Postgres Configuration (Optional)
+export USE_LOCAL_POSTGRES="false"  # Set to "true" to use local Postgres instead of Google Cloud SQL
+export LOCAL_POSTGRES_HOST="localhost"
+export LOCAL_POSTGRES_PORT="5432"
 
 # Additional Configuration
 export COOLDOWN_SECONDS="1.0"
@@ -360,6 +366,66 @@ This sets up the necessary connections to the PostgreSQL database for tracking i
 
 - Defines a `ConvoRow` data class that mirrors each column in the table.  
 - Enumerations for `RequestStatus` and `RequestCause`.
+
+## 🔄 Using Local Postgres
+
+EasyInference now supports using a locally hosted Postgres server instead of Google Cloud SQL. This is useful for development, testing, or when you prefer to use your own database infrastructure.
+
+### Setting Up Local Postgres
+
+1. Make sure you have PostgreSQL installed and running on your machine or server
+
+2. Set the following environment variables to enable local Postgres:
+
+```bash
+export USE_LOCAL_POSTGRES="true"
+export LOCAL_POSTGRES_HOST="localhost"  # Or your Postgres server address
+export LOCAL_POSTGRES_PORT="5432"      # Or your Postgres server port
+
+# These are still required even with local Postgres
+export SQL_DATABASE_NAME="your-database"
+export SQL_USER="db-user"
+export SQL_PASSWORD="your-password"
+export TABLE_NAME="your-table"
+```
+
+3. Initialize the database connection as usual:
+
+```python
+from easyinference import initialize_query_connection
+
+# This will now connect to your local Postgres instead of Google Cloud SQL
+initialize_query_connection()
+```
+
+### Switching Between Local and Cloud SQL
+
+You can easily switch between local and cloud SQL by changing the `USE_LOCAL_POSTGRES` environment variable:
+
+```bash
+# Use local Postgres
+export USE_LOCAL_POSTGRES="true"
+
+# Use Google Cloud SQL
+export USE_LOCAL_POSTGRES="false"
+```
+
+Or in your Python code:
+
+```python
+import os
+from easyinference import reload_config, initialize_query_connection
+
+# Switch to local Postgres
+os.environ["USE_LOCAL_POSTGRES"] = "true"
+reload_config()
+initialize_query_connection()
+
+# Later, switch back to Google Cloud SQL
+os.environ["USE_LOCAL_POSTGRES"] = "false"
+reload_config()
+initialize_query_connection()
+```
 
 ### 2. `cloudsql/table_utils.py` 🔧
 

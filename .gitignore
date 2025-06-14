@@ -9,6 +9,7 @@ rsc/IGNORE
 *copy*
 artifacts/temp_source/*
 *.ipynb
+*.egg-info
 
 # Internal and sensitive files
 INTERNAL_*

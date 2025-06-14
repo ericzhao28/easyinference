@@ -91,10 +91,15 @@ def _get_client(location=None) -> genai.Client:
         if now - created_time < _CLIENT_EXPIRY_SECONDS:
             return client
     if location is None:
-        # client = genai.Client(api_key=GEMINI_API_KEY, http_options=HttpOptions(api_version='v1alpha'))  # Gemini Developer API
-        client = genai.Client(vertexai=True, project=GCP_PROJECT_ID, http_options=HttpOptions(api_version='v1'))
+        if GEMINI_API_KEY:
+            client = genai.Client(api_key=GEMINI_API_KEY, http_options=HttpOptions(api_version='v1alpha'))  # Gemini Developer API
+        else:
+            client = genai.Client(vertexai=True, project=GCP_PROJECT_ID, http_options=HttpOptions(api_version='v1'))
     else:
-        client = genai.Client(vertexai=True, project=GCP_PROJECT_ID, location=location, http_options=HttpOptions(api_version='v1'))
+        if GEMINI_API_KEY:
+            client = genai.Client(api_key=GEMINI_API_KEY, http_options=HttpOptions(api_version='v1alpha'))  # Gemini Developer API
+        else:
+            client = genai.Client(vertexai=True, project=GCP_PROJECT_ID, location=location, http_options=HttpOptions(api_version='v1'))
     _GENAI_CLIENTS[location] = (client, now)
     return client
 

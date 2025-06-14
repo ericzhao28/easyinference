@@ -1,7 +1,7 @@
 """
 table_utils.py
 
-Provides helper functions to interact with the Google Cloud SQL database, including:
+Provides helper functions to interact with the database (Google Cloud SQL or local Postgres), including:
  - Insert new rows
  - Find existing rows by content hash
  - Retrieve rows by status and tag
@@ -15,9 +15,8 @@ import sqlalchemy
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from sqlalchemy import text, MetaData, Table, Column, String, Integer, TIMESTAMP, JSON
 from sqlalchemy.dialects.postgresql import ARRAY
-from google.cloud.sql.connector import Connector, IPTypes, create_async_connector
 from contextlib import asynccontextmanager, contextmanager
-import json  # Add this import at the top of the file
+import json
 import asyncio # Import asyncio for semaphore
 
 
@@ -29,13 +28,36 @@ logger = logging.getLogger(__name__)
 pool = None
 db_semaphore = None # Initialize semaphore here
 
-async def init_connection_pool(connector: Connector) -> AsyncEngine:
+async def init_local_connection_pool() -> AsyncEngine:
+    """
+    Initializes a connection pool for a local Postgres instance.
+    """
+    connection_string = f"postgresql+asyncpg://{config.SQL_USER}:{config.SQL_PASSWORD}@{config.LOCAL_POSTGRES_HOST}:{config.LOCAL_POSTGRES_PORT}/{config.SQL_DATABASE_NAME}"
+    
+    logger.debug(f"Creating local connection pool with connection string format: postgresql+asyncpg://user:***@{config.LOCAL_POSTGRES_HOST}:{config.LOCAL_POSTGRES_PORT}/{config.SQL_DATABASE_NAME}")
+    
+    pool = create_async_engine(
+        connection_string,
+        pool_size=config.POOL_SIZE,
+        max_overflow=int(2 * config.POOL_SIZE),
+        pool_timeout=120,
+        pool_recycle=300,
+        pool_pre_ping=True,
+    )
+    return pool
+
+async def init_cloud_connection_pool() -> AsyncEngine:
     """
     Initializes a connection pool for a Cloud SQL instance of Postgres.
-
     Uses the Cloud SQL Python Connector package.
     """
+    from google.cloud.sql.connector import Connector, IPTypes, create_async_connector
+    
+    logger.debug(f"Creating Cloud SQL connector for instance: {config.SQL_INSTANCE_CONNECTION_NAME}")
+    connector = await create_async_connector()
+    
     def getconn() -> asyncpg.Connection:
+        logger.debug(f"Establishing new connection to Cloud SQL instance: {config.SQL_INSTANCE_CONNECTION_NAME}")
         conn: asyncpg.Connection = connector.connect_async(
             config.SQL_INSTANCE_CONNECTION_NAME,
             "asyncpg",
@@ -46,6 +68,7 @@ async def init_connection_pool(connector: Connector) -> AsyncEngine:
         )
         return conn
 
+    logger.debug(f"Creating Cloud SQL connection pool with async_creator")
     pool = create_async_engine(
         "postgresql+asyncpg://",
         async_creator=getconn,
@@ -59,10 +82,21 @@ async def init_connection_pool(connector: Connector) -> AsyncEngine:
 
 # Create the engine once as a module-level variable
 async def initialize_query_connection():
-    global pool, db_semaphore # Add db_semaphore to global scope
-    connector = await create_async_connector()
-    pool = await init_connection_pool(connector)
-    db_semaphore = asyncio.Semaphore(config.POOL_SIZE) # Initialize semaphore with a limit, adjust as needed.
+    global pool, db_semaphore
+    
+    if config.USE_LOCAL_POSTGRES:
+        logger.info(f"Initializing LOCAL Postgres connection to {config.LOCAL_POSTGRES_HOST}:{config.LOCAL_POSTGRES_PORT}/{config.SQL_DATABASE_NAME} with user '{config.SQL_USER}'")
+        logger.info(f"Connection pool size: {config.POOL_SIZE}, max overflow: {int(2 * config.POOL_SIZE)}")
+        pool = await init_local_connection_pool()
+        logger.info(f"Successfully established LOCAL Postgres connection pool")
+    else:
+        logger.info(f"Initializing REMOTE Google Cloud SQL connection to instance '{config.SQL_INSTANCE_CONNECTION_NAME}'")
+        logger.info(f"Database: {config.SQL_DATABASE_NAME}, user: '{config.SQL_USER}', connection pool size: {config.POOL_SIZE}")
+        pool = await init_cloud_connection_pool()
+        logger.info(f"Successfully established REMOTE Google Cloud SQL connection pool")
+        
+    db_semaphore = asyncio.Semaphore(config.POOL_SIZE) # Initialize semaphore with a limit
+    logger.info(f"Database semaphore initialized with limit of {config.POOL_SIZE} concurrent connections")
 
 metadata = MetaData()
 
@@ -482,12 +516,14 @@ async def create_table_if_not_exists() -> None:
     """
     Creates the SQL table if it doesn't already exist.
     Uses the schema defined in the README.
+    Works with both local Postgres and Google Cloud SQL connections.
 
     Raises:
         Exception if table creation fails.
     """
     try:
-        logger.info(f"Checking if table '{config.TABLE_NAME}' exists")
+        connection_type = "local Postgres" if config.USE_LOCAL_POSTGRES else "Google Cloud SQL"
+        logger.info(f"Checking if table '{config.TABLE_NAME}' exists using {connection_type} connection")
         
         # Check if table exists using asyncpg-compatible app
         async with get_connection() as conn:
@@ -496,16 +532,17 @@ async def create_table_if_not_exists() -> None:
                 SELECT EXISTS (
                     SELECT FROM information_schema.tables 
                     WHERE table_name = :table_name
+                    AND table_schema = current_schema()
                 )
             """)
             result = await conn.execute(query, {"table_name": config.TABLE_NAME})
             table_exists = result.scalar()
             
             if table_exists:
-                logger.info(f"Table '{config.TABLE_NAME}' already exists")
+                logger.info(f"Table '{config.TABLE_NAME}' already exists in {connection_type}")
                 return
         
-        logger.info(f"Table '{config.TABLE_NAME}' does not exist, creating now")
+        logger.info(f"Table '{config.TABLE_NAME}' does not exist in {connection_type}, creating now")
         
         # Define the table
         conversations = Table(
@@ -535,8 +572,13 @@ async def create_table_if_not_exists() -> None:
         # Create the table using SQLAlchemy's create_all
         async with get_connection() as conn:
             await conn.run_sync(lambda conn: metadata.create_all(conn, tables=[conversations]))
+            # Explicitly commit the transaction to ensure the table is visible to other connections
+            await conn.commit()
         
         logger.info(f"Successfully created table '{config.TABLE_NAME}'")
+        
+        # Wait a moment to ensure the table is fully available
+        await asyncio.sleep(0.5)
     
     except Exception as e:
         logger.error(f"Failed to create table {config.TABLE_NAME}: {e}")
