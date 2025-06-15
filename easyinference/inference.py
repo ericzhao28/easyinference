@@ -49,7 +49,7 @@ from .cloudsql.table_utils import (
     refresh_row,   
 )
 
-from .config import COOLDOWN_SECONDS_DEFAULT, MAX_RETRIES_DEFAULT, BATCH_TIMEOUT_HOURS_DEFAULT, ROUND_ROBIN_ENABLED_DEFAULT, ROUND_ROBIN_OPTIONS_DEFAULT, GCP_PROJECT_ID, VERTEX_BUCKET, GEMINI_API_KEY
+from .config import COOLDOWN_SECONDS_DEFAULT, MAX_RETRIES_DEFAULT, BATCH_TIMEOUT_HOURS_DEFAULT, ROUND_ROBIN_ENABLED_DEFAULT, ROUND_ROBIN_OPTIONS_DEFAULT, GCP_PROJECT_ID, VERTEX_BUCKET, GEMINI_API_KEY, DB_TYPE
 
 _CLIENT_EXPIRY_SECONDS = 20 * 60  # 20 minutes
 
@@ -669,6 +669,13 @@ async def individual_inference(
     if not isinstance(prompt_functions, list):
         raise ValueError("Prompt functions must be a list.")
     
+    # Check if database operations are disabled
+    if DB_TYPE == "none":
+        if not run_fast:
+            raise ValueError("Batch inference is not available when DB_TYPE is set to 'none'. Please configure a database connection using DB_TYPE='gcp' or DB_TYPE='local'.")
+        if tags:
+            raise ValueError("Tagged inference is not available when DB_TYPE is set to 'none'. Please configure a database connection using DB_TYPE='gcp' or DB_TYPE='local'.")
+
     all_tags = (tags or []) + (optional_tags or [])
 
     collected_responses = []

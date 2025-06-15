@@ -84,12 +84,17 @@ async def init_cloud_connection_pool() -> AsyncEngine:
 async def initialize_query_connection():
     global pool, db_semaphore
     
-    if config.USE_LOCAL_POSTGRES:
+    if config.DB_TYPE == "none":
+        logger.info("Database operations are disabled with DB_TYPE='none'")
+        pool = None
+        db_semaphore = None
+        return
+    elif config.DB_TYPE == "local":
         logger.info(f"Initializing LOCAL Postgres connection to {config.LOCAL_POSTGRES_HOST}:{config.LOCAL_POSTGRES_PORT}/{config.SQL_DATABASE_NAME} with user '{config.SQL_USER}'")
         logger.info(f"Connection pool size: {config.POOL_SIZE}, max overflow: {int(2 * config.POOL_SIZE)}")
         pool = await init_local_connection_pool()
         logger.info(f"Successfully established LOCAL Postgres connection pool")
-    else:
+    else:  # config.DB_TYPE == "gcp"
         logger.info(f"Initializing REMOTE Google Cloud SQL connection to instance '{config.SQL_INSTANCE_CONNECTION_NAME}'")
         logger.info(f"Database: {config.SQL_DATABASE_NAME}, user: '{config.SQL_USER}', connection pool size: {config.POOL_SIZE}")
         pool = await init_cloud_connection_pool()
@@ -102,8 +107,10 @@ metadata = MetaData()
 
 @asynccontextmanager
 async def get_connection():
+    if config.DB_TYPE == "none":
+        raise ValueError("Database operations are not available when DB_TYPE is set to 'none'. Please configure a database connection using DB_TYPE='gcp' or DB_TYPE='local'.")
     if pool is None:
-        raise ValueError("…")
+        raise ValueError("Database connection pool has not been initialized. Call initialize_query_connection() first.")
     logger.debug("Waiting on semaphore…")
     async with db_semaphore:
         logger.debug("Semaphore acquired.")
@@ -522,7 +529,7 @@ async def create_table_if_not_exists() -> None:
         Exception if table creation fails.
     """
     try:
-        connection_type = "local Postgres" if config.USE_LOCAL_POSTGRES else "Google Cloud SQL"
+        connection_type = "local Postgres" if config.DB_TYPE == "local" else "Google Cloud SQL"
         logger.info(f"Checking if table '{config.TABLE_NAME}' exists using {connection_type} connection")
         
         # Check if table exists using asyncpg-compatible app

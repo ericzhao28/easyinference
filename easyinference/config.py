@@ -22,8 +22,8 @@ SQL_PASSWORD = os.getenv("SQL_PASSWORD", "your-password")
 SQL_INSTANCE_CONNECTION_NAME = os.getenv("SQL_INSTANCE_CONNECTION_NAME", "project-id:region:instance-name")
 POOL_SIZE = int(os.getenv("POOL_SIZE", "1"))
 
-# Local Postgres Configuration
-USE_LOCAL_POSTGRES = os.getenv("USE_LOCAL_POSTGRES", "false").lower() == "true"
+# Database Configuration
+DB_TYPE = os.getenv("DB_TYPE", "gcp").lower()  # Options: 'gcp', 'local', 'none'
 LOCAL_POSTGRES_HOST = os.getenv("LOCAL_POSTGRES_HOST", "localhost")
 LOCAL_POSTGRES_PORT = int(os.getenv("LOCAL_POSTGRES_PORT", "5432"))
 
@@ -60,7 +60,7 @@ def reload_config():
     global COOLDOWN_SECONDS_DEFAULT, MAX_RETRIES_DEFAULT, BATCH_TIMEOUT_HOURS_DEFAULT
     global ROUND_ROBIN_ENABLED_DEFAULT
     global TEST_PROJECT_ID, TEST_REGION, TEST_BUCKET
-    global USE_LOCAL_POSTGRES, LOCAL_POSTGRES_HOST, LOCAL_POSTGRES_PORT
+    global DB_TYPE, LOCAL_POSTGRES_HOST, LOCAL_POSTGRES_PORT
 
     # Google Cloud Platform Configuration
     GCP_PROJECT_ID = os.getenv("GCP_PROJECT_ID", "your-project-id")
@@ -75,8 +75,12 @@ def reload_config():
     SQL_PASSWORD = os.getenv("SQL_PASSWORD", "your-password")
     SQL_INSTANCE_CONNECTION_NAME = os.getenv("SQL_INSTANCE_CONNECTION_NAME", "project-id:region:instance-name")
     
-    # Local Postgres Configuration
-    USE_LOCAL_POSTGRES = os.getenv("USE_LOCAL_POSTGRES", "false").lower() == "true"
+    # Database Configuration
+    DB_TYPE = os.getenv("DB_TYPE", "gcp").lower()  # Options: 'gcp', 'local', 'none'
+    # Raise error if invalid
+    if DB_TYPE not in ["gcp", "local", "none"]:
+        raise ValueError(f"Invalid DB_TYPE: {DB_TYPE}. Must be 'gcp', 'local', or 'none'.")
+    
     LOCAL_POSTGRES_HOST = os.getenv("LOCAL_POSTGRES_HOST", "localhost")
     LOCAL_POSTGRES_PORT = int(os.getenv("LOCAL_POSTGRES_PORT", "5432"))
 

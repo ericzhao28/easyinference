@@ -56,7 +56,7 @@ export SQL_INSTANCE_CONNECTION_NAME="project-id:region:instance-name"
 export POOL_SIZE="50"
 
 # Local Postgres Configuration (Optional)
-export USE_LOCAL_POSTGRES="false"  # Set to "true" to use local Postgres instead of Google Cloud SQL
+export DB_TYPE="local"
 export LOCAL_POSTGRES_HOST="localhost"
 export LOCAL_POSTGRES_PORT="5432"
 
@@ -367,26 +367,42 @@ This sets up the necessary connections to the PostgreSQL database for tracking i
 - Defines a `ConvoRow` data class that mirrors each column in the table.  
 - Enumerations for `RequestStatus` and `RequestCause`.
 
-## 🔄 Using Local Postgres
+## 🔄 Database Configuration Options
 
-EasyInference now supports using a locally hosted Postgres server instead of Google Cloud SQL. This is useful for development, testing, or when you prefer to use your own database infrastructure.
+EasyInference supports three database configuration options:
 
-### Setting Up Local Postgres
+1. **Google Cloud SQL** (default)
+2. **Local Postgres** for development or when using your own database infrastructure
+3. **No Database** for simple inference without tracking or batch processing
 
-1. Make sure you have PostgreSQL installed and running on your machine or server
+### Setting Up Database Configuration
 
-2. Set the following environment variables to enable local Postgres:
+1. Choose your database type by setting the `DB_TYPE` environment variable:
 
 ```bash
-export USE_LOCAL_POSTGRES="true"
+# Use Google Cloud SQL (default)
+export DB_TYPE="gcp"
+
+# Use local Postgres
+export DB_TYPE="local"
 export LOCAL_POSTGRES_HOST="localhost"  # Or your Postgres server address
 export LOCAL_POSTGRES_PORT="5432"      # Or your Postgres server port
 
-# These are still required even with local Postgres
+# Use no database
+export DB_TYPE="none"
+```
+
+2. For Google Cloud SQL or local Postgres, set the required database parameters:
+
+```bash
+# Required for both GCP and local Postgres options
 export SQL_DATABASE_NAME="your-database"
 export SQL_USER="db-user"
 export SQL_PASSWORD="your-password"
 export TABLE_NAME="your-table"
+
+# Only required for GCP option
+export SQL_INSTANCE_CONNECTION_NAME="project-id:region:instance-name"
 ```
 
 3. Initialize the database connection as usual:
@@ -394,38 +410,41 @@ export TABLE_NAME="your-table"
 ```python
 from easyinference import initialize_query_connection
 
-# This will now connect to your local Postgres instead of Google Cloud SQL
 initialize_query_connection()
 ```
 
-### Switching Between Local and Cloud SQL
+### Switching Between Database Types
 
-You can easily switch between local and cloud SQL by changing the `USE_LOCAL_POSTGRES` environment variable:
-
-```bash
-# Use local Postgres
-export USE_LOCAL_POSTGRES="true"
-
-# Use Google Cloud SQL
-export USE_LOCAL_POSTGRES="false"
-```
-
-Or in your Python code:
+You can easily switch between database types in your Python code:
 
 ```python
 import os
 from easyinference import reload_config, initialize_query_connection
 
 # Switch to local Postgres
-os.environ["USE_LOCAL_POSTGRES"] = "true"
+os.environ["DB_TYPE"] = "local"
 reload_config()
 initialize_query_connection()
 
-# Later, switch back to Google Cloud SQL
-os.environ["USE_LOCAL_POSTGRES"] = "false"
+# Later, switch to Google Cloud SQL
+os.environ["DB_TYPE"] = "gcp"
+reload_config()
+initialize_query_connection()
+
+# Or disable database operations entirely
+os.environ["DB_TYPE"] = "none"
 reload_config()
 initialize_query_connection()
 ```
+
+### Using No Database Mode
+
+When `DB_TYPE="none"`, EasyInference operates without any database tracking. In this mode:
+
+- No database connection is established
+- Batch inference is not available (will raise an error)
+- Tagged inference is not available (will raise an error)
+- Only direct, synchronous inference calls without tags are supported
 
 ### 2. `cloudsql/table_utils.py` 🔧
 
